@@ -297,23 +297,12 @@ if (preg_match('/^guru\/absensi\/(\d+)$/', $route, $matches) && $request_method 
         }
     }
 
-    // Kirim notifikasi WhatsApp ke grup
+    // Kirim jadwal hari ini dengan status kehadiran terupdate ke grup
     try {
-        $message = formatAbsensiMessage(
-            $jadwal['guru_nama'],
-            $jadwal['kelas'],
-            $jadwal['mapel'],
-            substr($jadwal['jam_mulai'], 0, 5), // Format HH:MM
-            $current_time->format('H:i'),
-            $status,
-            $jadwal['hari']
-        );
-        
-        // Kirim ke grup (gunakan GROUP_ID dari config)
-        $whatsapp_result = sendWhatsAppNotification($message, FONNTE_GROUP_ID);
+        $whatsapp_result = sendJadwalHariIniKeGrup($db);
         
         // Log hasil pengiriman
-        error_log("WhatsApp notification sent to group: " . json_encode($whatsapp_result));
+        error_log("Jadwal terupdate sent to group: " . json_encode($whatsapp_result));
     } catch (Exception $e) {
         // Jangan gagalkan absensi jika notifikasi gagal
         error_log("WhatsApp notification failed: " . $e->getMessage());

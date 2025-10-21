@@ -42,6 +42,20 @@
             max-height: calc(100vh - 120px);
             overflow-y: auto;
         }
+        /* Animation for notification */
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -542,6 +556,20 @@
                     <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-secondary">
                         <h2 class="text-2xl font-bold text-gray-800">Dashboard Admin</h2>
                         <p class="text-gray-500">Selamat datang, ${userName}. Kelola jadwal dan lihat laporan absensi.</p>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="bg-gradient-to-r from-green-500 to-green-600 p-4 rounded-xl shadow-lg">
+                        <div class="flex items-center justify-between">
+                            <div class="text-white">
+                                <h3 class="text-lg font-semibold">📱 Notifikasi WhatsApp</h3>
+                                <p class="text-sm opacity-90">Kirim jadwal hari ini ke grup WhatsApp</p>
+                            </div>
+                            <button onclick="kirimJadwalKeGrup()" class="px-6 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition duration-150 shadow-md flex items-center gap-2">
+                                <span id="kirim-jadwal-text">📤 Kirim Jadwal</span>
+                                <span id="kirim-jadwal-spinner" class="hidden">⏳</span>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Tabs Navigation -->
@@ -1333,6 +1361,45 @@
             }
         }
 
+        // Fungsi untuk mengirim jadwal ke grup WhatsApp
+        async function kirimJadwalKeGrup() {
+            const btn = event.target.closest('button');
+            const textEl = document.getElementById('kirim-jadwal-text');
+            const spinner = document.getElementById('kirim-jadwal-spinner');
+            
+            btn.disabled = true;
+            textEl.textContent = 'Mengirim...';
+            spinner.classList.remove('hidden');
+            
+            try {
+                const response = await fetch('kirim_jadwal.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Simpan tanggal pengiriman
+                    const today = new Date().toISOString().split('T')[0];
+                    localStorage.setItem('lastJadwalSent', today);
+                    
+                    showNotification('✅ Jadwal berhasil dikirim ke grup WhatsApp!', 'success');
+                } else {
+                    showNotification('❌ Gagal mengirim jadwal: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showNotification('❌ Terjadi kesalahan saat mengirim jadwal: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                textEl.textContent = '📤 Kirim Jadwal';
+                spinner.classList.add('hidden');
+            }
+        }
+
         function renderApp() {
             updateUserInfo();
             const container = document.getElementById('app-container');
@@ -1352,12 +1419,84 @@
             }
         }
 
+        // Auto-kirim jadwal pagi jika admin login di pagi hari
+        async function autoKirimJadwalPagi() {
+            // Hanya untuk admin
+            if (userRole !== 'admin') return;
+            
+            const now = new Date();
+            const hour = now.getHours();
+            const lastSent = localStorage.getItem('lastJadwalSent');
+            const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+            
+            // Cek apakah sudah pernah kirim hari ini
+            if (lastSent === today) {
+                console.log('Jadwal hari ini sudah dikirim');
+                return;
+            }
+            
+            // Kirim otomatis jika jam 06:00 - 08:00 (pagi)
+            if (hour >= 6 && hour < 8) {
+                console.log('Waktu pagi terdeteksi, mengirim jadwal otomatis...');
+                
+                try {
+                    const response = await fetch('kirim_jadwal.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        localStorage.setItem('lastJadwalSent', today);
+                        console.log('✅ Jadwal pagi berhasil dikirim otomatis');
+                        
+                        // Tampilkan notifikasi sukses
+                        showNotification('✅ Jadwal pagi telah dikirim ke grup WhatsApp', 'success');
+                    }
+                } catch (error) {
+                    console.error('Error auto-kirim jadwal:', error);
+                }
+            }
+            // Reminder jika belum kirim dan sudah lewat jam 8
+            else if (hour >= 8 && hour < 12) {
+                showNotification('⚠️ Reminder: Belum mengirim jadwal hari ini. Klik tombol "Kirim Jadwal" di dashboard.', 'warning');
+            }
+        }
+        
+        // Fungsi untuk menampilkan notifikasi
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-4 rounded-lg shadow-lg z-50 animate-slide-in ${
+                type === 'success' ? 'bg-green-500' : 
+                type === 'warning' ? 'bg-yellow-500' : 
+                'bg-blue-500'
+            } text-white`;
+            notification.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="text-white hover:text-gray-200">✕</button>
+                </div>
+            `;
+            document.body.appendChild(notification);
+            
+            // Auto-remove setelah 10 detik
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 10000);
+        }
+
         // Saat aplikasi dimuat, render app langsung jika ada token
         document.addEventListener('DOMContentLoaded', () => {
             // Jika ada token dan data user lengkap, langsung render dashboard
             if (userToken && userRole && userName && userId) {
                 console.log('Token ditemukan, login otomatis sebagai:', userName);
                 currentView = userRole === 'admin' ? 'admin' : 'guru';
+                
+                // Auto-kirim jadwal pagi jika admin
+                setTimeout(() => autoKirimJadwalPagi(), 2000);
             } else {
                 // Jika data tidak lengkap, bersihkan semua dan ke login
                 if (userToken || userRole || userName || userId) {

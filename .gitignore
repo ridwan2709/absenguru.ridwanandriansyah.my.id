@@ -1,8 +1,6 @@
-# File konfigurasi database (sensitive)
+# File konfigurasi (sensitive)
 koneksi.php
-
-# File konfigurasi WhatsApp (sensitive)
-#fonnte_config.php
+# fonnte_config.php
 
 # Vendor dependencies
 vendor/
@@ -16,8 +14,10 @@ vendor/
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Log files
+logs/*.log
 *.log
 
 # Temporary files
@@ -26,3 +26,15 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Node modules (jika ada)
+node_modules/
+
+# Environment files
+.env
+.env.local

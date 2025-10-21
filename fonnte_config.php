@@ -116,6 +116,124 @@ function formatAbsensiMessage($guru_nama, $kelas, $mapel, $jam_mulai, $jam_masuk
 }
 
 /**
+ * Kirim jadwal hari ini dengan status kehadiran ke grup
+ * @param PDO $db - Database connection
+ * @return array - Result dari pengiriman
+ */
+function sendJadwalHariIniKeGrup($db) {
+    // Dapatkan hari ini
+    $hari_map = [
+        'Monday' => 'Senin', 'Tuesday' => 'Selasa', 'Wednesday' => 'Rabu', 
+        'Thursday' => 'Kamis', 'Friday' => 'Jumat', 'Saturday' => 'Sabtu', 'Sunday' => 'Minggu'
+    ];
+    $hari_ini = $hari_map[date('l')] ?? date('l');
+    $today_date = date('Y-m-d');
+    
+    // Ambil semua jadwal hari ini dengan status absensi
+    $stmt = $db->prepare("
+        SELECT j.*, g.nama as nama_guru,
+               a.status as status_absensi,
+               a.jam_masuk
+        FROM jadwal j
+        JOIN guru g ON j.id_guru = g.id_guru
+        LEFT JOIN absensi a ON j.id_jadwal = a.id_jadwal AND a.tanggal = ?
+        WHERE j.hari = ?
+        ORDER BY j.jam_mulai ASC
+    ");
+    $stmt->execute([$today_date, $hari_ini]);
+    $jadwal_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    if (count($jadwal_list) === 0) {
+        return ['success' => false, 'error' => 'Tidak ada jadwal hari ini'];
+    }
+    
+    // Ambil semua jam unik
+    $stmt_jam = $db->prepare("
+        SELECT DISTINCT jam_mulai 
+        FROM jadwal 
+        WHERE hari = ?
+        ORDER BY jam_mulai ASC
+    ");
+    $stmt_jam->execute([$hari_ini]);
+    $jam_unik = $stmt_jam->fetchAll(PDO::FETCH_COLUMN);
+    
+    // Buat mapping jam_mulai ke jam ke-X
+    $jam_ke_map = [];
+    foreach ($jam_unik as $index => $jam) {
+        $jam_ke_map[$jam] = $index + 1;
+    }
+    
+    // Group jadwal berdasarkan jam_mulai
+    $jadwal_per_jam = [];
+    foreach ($jadwal_list as $jadwal) {
+        $jam_mulai = $jadwal['jam_mulai'];
+        $jam_ke = $jam_ke_map[$jam_mulai] ?? '?';
+        
+        if (!isset($jadwal_per_jam[$jam_ke])) {
+            $jadwal_per_jam[$jam_ke] = [
+                'jam_mulai' => substr($jam_mulai, 0, 5),
+                'jadwal' => []
+            ];
+        }
+        $jadwal_per_jam[$jam_ke]['jadwal'][] = $jadwal;
+    }
+    
+    ksort($jadwal_per_jam);
+    
+    // Format bulan
+    $bulan_map = [
+        '01' => 'Jan', '02' => 'Feb', '03' => 'Mar', '04' => 'Apr',
+        '05' => 'Mei', '06' => 'Jun', '07' => 'Jul', '08' => 'Agu',
+        '09' => 'Sep', '10' => 'Okt', '11' => 'Nov', '12' => 'Des'
+    ];
+    $tgl = date('d');
+    $bln = $bulan_map[date('m')];
+    $thn = date('Y');
+    
+    // Format pesan WhatsApp singkat dengan status kehadiran
+    $message = "📚 *Jadwal KBM {$hari_ini}, {$tgl} {$bln} {$thn}*\n\n";
+    
+    // Icon untuk jam pelajaran
+    $jam_icons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+    
+    $total_hadir = 0;
+    $total_jadwal = count($jadwal_list);
+    
+    foreach ($jadwal_per_jam as $jam_ke => $data) {
+        $jam_mulai = $data['jam_mulai'];
+        $jadwal_items = $data['jadwal'];
+        
+        // Gunakan icon angka jika tersedia
+        $icon = isset($jam_icons[$jam_ke - 1]) ? $jam_icons[$jam_ke - 1] : "#{$jam_ke}";
+        
+        $message .= "{$icon} *{$jam_mulai}*\n";
+        
+        foreach ($jadwal_items as $jadwal) {
+            // Cek status kehadiran
+            $status_icon = '';
+            if (!empty($jadwal['status_absensi'])) {
+                if ($jadwal['status_absensi'] === 'Hadir') {
+                    $status_icon = ' ✅';
+                    $total_hadir++;
+                } elseif ($jadwal['status_absensi'] === 'Terlambat') {
+                    $status_icon = ' ⚠️';
+                    $total_hadir++;
+                }
+            }
+            
+            $message .= "• {$jadwal['mapel']} - {$jadwal['nama_guru']} ({$jadwal['kelas']}){$status_icon}\n";
+        }
+        
+        $message .= "\n";
+    }
+    
+    $message .= "_Hadir: {$total_hadir}/{$total_jadwal} sesi_";
+    
+    // Kirim ke grup
+    return sendWhatsAppNotification($message, FONNTE_GROUP_ID);
+}
+
+/**
  * Test koneksi Fonnte
  * @param string $target - Nomor HP atau Group ID untuk test (opsional)
  * @return array - Result dari pengiriman
