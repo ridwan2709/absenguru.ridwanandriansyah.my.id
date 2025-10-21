@@ -15,11 +15,8 @@ date_default_timezone_set('Asia/Jakarta');
 // Include Fonnte Configuration
 require_once 'fonnte_config.php';
 
-// Konfigurasi Database
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASSWORD', '');
-define('DB_NAME', 'absensi_guru_db');
+// Include Koneksi Database
+require_once 'koneksi.php';
 
 // Batas Waktu Absensi (dalam menit)
 define('ABSENSI_LIMIT_MINUTES', 30);
