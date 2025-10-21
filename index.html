@@ -123,45 +123,68 @@
                 ...options.headers
             };
 
-            if (userToken) {
+            // Selalu ambil token terbaru dari localStorage untuk menghindari race condition
+            const currentToken = userToken || localStorage.getItem('absensiToken');
+            
+            if (currentToken) {
                 // PHP Backend menggunakan ID Guru sebagai token Bearer
-                headers['Authorization'] = `Bearer ${userToken}`;
+                headers['Authorization'] = `Bearer ${currentToken}`;
+                console.log('Sending request with token:', currentToken);
+            } else {
+                console.warn('No token available for route:', route);
             }
 
-            const response = await fetch(url, { ...options, headers });
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: `Server Error: ${response.statusText}` }));
+            try {
+                const response = await fetch(url, { ...options, headers });
                 
-                // Hanya logout jika benar-benar unauthorized dan bukan dari route login
-                if ((response.status === 401 || response.status === 403) && route !== 'login') {
-                    // Cek apakah error message mengindikasikan token invalid
-                    const errorMsg = errorData.message || '';
-                    if (errorMsg.toLowerCase().includes('token') || errorMsg.toLowerCase().includes('unauthorized')) {
-                        console.log('Token tidak valid, logout...');
-                        // Bersihkan localStorage dan redirect ke login
-                        localStorage.clear();
-                        userToken = null;
-                        userRole = null;
-                        userName = null;
-                        userId = null;
-                        currentView = 'login';
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: `Server Error: ${response.statusText}` }));
+                    
+                    // Hanya logout jika benar-benar unauthorized dan bukan dari route login
+                    // Tambahkan pengecekan lebih ketat untuk menghindari logout prematur
+                    if ((response.status === 401 || response.status === 403) && route !== 'login') {
+                        const errorMsg = errorData.message || '';
                         
-                        showModal('Sesi Berakhir', 'Sesi Anda telah berakhir. Silakan login kembali.', 'alert', () => {
-                            renderApp();
-                        });
-                        return null;
+                        // Hanya logout jika pesan error secara eksplisit menyebutkan token tidak valid
+                        // atau pengguna tidak ditemukan
+                        if (errorMsg.toLowerCase().includes('token tidak valid') || 
+                            errorMsg.toLowerCase().includes('pengguna tidak ditemukan') ||
+                            errorMsg.toLowerCase().includes('token tidak ditemukan')) {
+                            
+                            console.warn('Token tidak valid atau expired, melakukan logout...', errorMsg);
+                            
+                            // Bersihkan localStorage dan redirect ke login
+                            localStorage.clear();
+                            userToken = null;
+                            userRole = null;
+                            userName = null;
+                            userId = null;
+                            currentView = 'login';
+                            
+                            showModal('Sesi Berakhir', 'Sesi Anda telah berakhir. Silakan login kembali.', 'alert', () => {
+                                renderApp();
+                            });
+                            return null;
+                        }
                     }
+
+                    throw new Error(errorData.message || `API Error: ${response.statusText}`);
                 }
 
-                throw new Error(errorData.message || `API Error: ${response.statusText}`);
+                // Cek jika response kosong (misal DELETE)
+                if (response.status === 204 || response.headers.get('content-length') === '0') {
+                    return {};
+                }
+                return response.json();
+                
+            } catch (error) {
+                // Jika error network (bukan dari server), jangan logout
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    console.error('Network error:', error);
+                    throw new Error('Gagal terhubung ke server. Periksa koneksi internet Anda.');
+                }
+                throw error;
             }
-
-            // Cek jika response kosong (misal DELETE)
-            if (response.status === 204 || response.headers.get('content-length') === '0') {
-                return {};
-            }
-            return response.json();
         }
 
         /** Mendapatkan Geolocation (wajib untuk absensi) */
@@ -455,7 +478,9 @@
             listEl.innerHTML = ''; 
 
             try {
+                console.log('Memuat jadwal hari ini...');
                 const data = await apiFetch('guru/jadwal_hari_ini');
+                console.log('Jadwal berhasil dimuat:', data);
                 dayEl.textContent = data.hari;
 
                 if (data.jadwal.length === 0) {
@@ -1197,12 +1222,16 @@
             spinner.classList.remove('hidden');
 
             try {
+                console.log('Attempting login for:', id_guru);
+                
                 const data = await apiFetch('login', {
                     method: 'POST',
                     body: JSON.stringify({ id_guru, password })
                 });
 
-                if (data) {
+                if (data && data.token) {
+                    console.log('Login berhasil:', data);
+                    
                     userToken = data.token; // ID Guru digunakan sebagai token
                     userRole = data.role;
                     userName = data.nama;
@@ -1213,10 +1242,19 @@
                     localStorage.setItem('absensiName', userName);
                     localStorage.setItem('absensiId', userId);
 
+                    console.log('Data tersimpan di localStorage, redirect ke dashboard...');
+                    
                     currentView = userRole === 'admin' ? 'admin' : 'guru';
-                    renderApp(); 
+                    
+                    // Tambahkan delay kecil untuk memastikan localStorage tersimpan
+                    setTimeout(() => {
+                        renderApp();
+                    }, 100);
+                } else {
+                    throw new Error('Data login tidak lengkap dari server');
                 }
             } catch (error) {
+                console.error('Login error:', error);
                 messageEl.textContent = error.message;
                 messageEl.classList.remove('hidden');
             } finally {

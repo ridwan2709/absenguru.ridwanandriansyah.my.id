@@ -55,12 +55,43 @@ function getDBConnection() {
 // =========================================================
 
 function getAuthInfo() {
+    // Coba beberapa cara untuk mendapatkan Authorization header
+    // Karena Apache/PHP tidak selalu meneruskan HTTP_AUTHORIZATION
+    
+    $authHeader = null;
+    
+    // Method 1: HTTP_AUTHORIZATION
     if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
         $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
-        if (preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
-            return $matches[1];
+    }
+    // Method 2: REDIRECT_HTTP_AUTHORIZATION (untuk Apache dengan mod_rewrite)
+    elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+        $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+    }
+    // Method 3: apache_request_headers() jika tersedia
+    elseif (function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        if (isset($headers['Authorization'])) {
+            $authHeader = $headers['Authorization'];
+        } elseif (isset($headers['authorization'])) {
+            $authHeader = $headers['authorization'];
         }
     }
+    // Method 4: getallheaders() sebagai fallback
+    elseif (function_exists('getallheaders')) {
+        $headers = getallheaders();
+        if (isset($headers['Authorization'])) {
+            $authHeader = $headers['Authorization'];
+        } elseif (isset($headers['authorization'])) {
+            $authHeader = $headers['authorization'];
+        }
+    }
+    
+    // Parse Bearer token
+    if ($authHeader && preg_match('/Bearer\s+(\S+)/i', $authHeader, $matches)) {
+        return $matches[1];
+    }
+    
     return null;
 }
 
