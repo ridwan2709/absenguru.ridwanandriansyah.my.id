@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Guru (PHP Backend)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Konfigurasi Tailwind untuk Font Inter dan Desain Responsive -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary': '#4f46e5',
+                        'secondary': '#10b981',
+                        'danger': '#ef4444',
+                        'warning': '#f59e0b',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Style kustom untuk body dan utility -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Custom scrollbar styling for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #d1d5db;
+            border-radius: 4px;
+        }
+        .scrollable-content {
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header / Navbar -->
+    <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
+        <h1 class="text-2xl font-bold text-primary">Absensi Guru (PHP)</h1>
+        <div id="user-info" class="flex items-center space-x-4">
+            <!-- Nama Pengguna dan Tombol Logout akan muncul di sini setelah login -->
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="app-container" class="flex-grow p-4 md:p-8 flex justify-center items-start">
+        <!-- Konten (Login, Guru Dashboard, Admin Dashboard) akan dimuat di sini -->
+    </main>
+
+    <!-- Modal for Alert/Confirmation (Instead of window.alert/confirm) -->
+    <div id="app-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm">
+            <h3 id="modal-title" class="text-xl font-semibold mb-4 text-gray-800">Pesan</h3>
+            <p id="modal-body" class="mb-6 text-gray-600">Isi pesan modal.</p>
+            <div class="flex justify-end space-x-3">
+                <button id="modal-cancel" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150 hidden">Batal</button>
+                <button id="modal-confirm" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-indigo-600 transition duration-150">OK</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Konfigurasi API
+        // PHP backend menggunakan api.php
+        const API_URL_ROOT = 'api.php'; 
+
+        // State Aplikasi
+        let userToken = localStorage.getItem('absensiToken') || null;
+        let userRole = localStorage.getItem('absensiRole') || null;
+        let userName = localStorage.getItem('absensiName') || null;
+        let userId = localStorage.getItem('absensiId') || null;
+        let currentView = userToken ? (userRole === 'admin' ? 'admin' : 'guru') : 'login';
+
+        // Geolocation State
+        let currentLatitude = null;
+        let currentLongitude = null;
+
+        // Utility Functions
+
+        /** Menampilkan pesan di modal kustom */
+        function showModal(title, body, type = 'alert', onConfirm = null, onCancel = null) {
+            const modal = document.getElementById('app-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').textContent = body;
+            
+            const confirmBtn = document.getElementById('modal-confirm');
+            const cancelBtn = document.getElementById('modal-cancel');
+
+            // Reset event listeners dan visibility
+            confirmBtn.onclick = () => { modal.classList.add('hidden'); if (onConfirm) onConfirm(); };
+            cancelBtn.onclick = () => { modal.classList.add('hidden'); if (onCancel) onCancel(); };
+            cancelBtn.classList.add('hidden');
+            
+            if (type === 'confirm') {
+                cancelBtn.classList.remove('hidden');
+            }
+
+            modal.classList.remove('hidden', 'flex');
+            modal.classList.add('flex');
+        }
+
+
+        /** Fungsi Fetch API dengan handling token dan error */
+        async function apiFetch(route, options = {}) {
+            // Bangun URL dengan parameter route
+            const url = `${API_URL_ROOT}?route=${route}`;
+
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            if (userToken) {
+                // PHP Backend menggunakan ID Guru sebagai token Bearer
+                headers['Authorization'] = `Bearer ${userToken}`;
+            }
+
+            const response = await fetch(url, { ...options, headers });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: `Server Error: ${response.statusText}` }));
+                
+                // Hanya logout jika benar-benar unauthorized dan bukan dari route login
+                if ((response.status === 401 || response.status === 403) && route !== 'login') {
+                    // Cek apakah error message mengindikasikan token invalid
+                    const errorMsg = errorData.message || '';
+                    if (errorMsg.toLowerCase().includes('token') || errorMsg.toLowerCase().includes('unauthorized')) {
+                        console.log('Token tidak valid, logout...');
+                        // Bersihkan localStorage dan redirect ke login
+                        localStorage.clear();
+                        userToken = null;
+                        userRole = null;
+                        userName = null;
+                        userId = null;
+                        currentView = 'login';
+                        
+                        showModal('Sesi Berakhir', 'Sesi Anda telah berakhir. Silakan login kembali.', 'alert', () => {
+                            renderApp();
+                        });
+                        return null;
+                    }
+                }
+
+                throw new Error(errorData.message || `API Error: ${response.statusText}`);
+            }
+
+            // Cek jika response kosong (misal DELETE)
+            if (response.status === 204 || response.headers.get('content-length') === '0') {
+                return {};
+            }
+            return response.json();
+        }
+
+        /** Mendapatkan Geolocation (wajib untuk absensi) */
+        function getGeolocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error("Geolocation tidak didukung oleh browser Anda."));
+                    return;
+                }
+                
+                // Minta izin lokasi dengan timeout 10 detik
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        currentLatitude = position.coords.latitude;
+                        currentLongitude = position.coords.longitude;
+                        console.log(`Lokasi berhasil didapatkan: ${currentLatitude}, ${currentLongitude}`);
+                        resolve(true);
+                    },
+                    (error) => {
+                        console.error("Geolocation Error:", error.message);
+                        reject(new Error(`Gagal mendapatkan lokasi GPS: ${error.message}. Pastikan izin lokasi diberikan.`));
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            });
+        }
+
+
+        // ===============================================
+        //           VIEW RENDER & NAVIGATION (Sama seperti sebelumnya)
+        // ===============================================
+        
+        function renderLogin() {
+            const container = document.getElementById('app-container');
+            container.classList.add('items-center'); // Pusatkan konten login
+            container.innerHTML = `
+                <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-300">
+                    <h2 class="text-3xl font-extrabold text-gray-900 mb-6 text-center">Login Aplikasi Absensi</h2>
+                    <form id="login-form" class="space-y-4">
+                        <div>
+                            <label for="id_guru" class="block text-sm font-medium text-gray-700">ID Guru / Admin</label>
+                            <input type="text" id="id_guru" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary focus:border-primary transition duration-150" value="G001" placeholder="Masukkan ID (e.g., G001)">
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                            <input type="password" id="password" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-primary focus:border-primary transition duration-150" value="guru123" placeholder="Masukkan Password">
+                        </div>
+                        <button type="submit" id="login-btn" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-md text-sm font-medium text-white bg-primary hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition duration-150">
+                            <span id="login-text">Masuk</span>
+                            <div id="login-spinner" class="hidden spinner ml-2 h-5 w-5 border-2 border-t-2 border-white rounded-full animate-spin"></div>
+                        </button>
+                    </form>
+                    <p class="mt-4 text-center text-xs text-gray-500">
+                        *Gunakan G001/guru123 (Guru) atau ADM01/admin123 (Admin) untuk demo.
+                    </p>
+                    <p id="login-message" class="mt-3 text-sm font-medium text-center text-danger hidden"></p>
+                    <button type="button" id="clear-storage-btn" class="mt-4 w-full text-xs text-gray-400 hover:text-gray-600 underline">
+                        Bersihkan Data Login Lama
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+            document.getElementById('clear-storage-btn').addEventListener('click', () => {
+                localStorage.clear();
+                showModal('Berhasil', 'Data login lama telah dihapus. Silakan login kembali.', 'alert');
+            });
+            updateUserInfo();
+        }
+
+        async function renderGuruDashboard() {
+            const container = document.getElementById('app-container');
+            container.classList.remove('items-center');
+            container.innerHTML = `
+                <div class="w-full max-w-6xl space-y-8">
+                    <div class="bg-gradient-to-r from-blue-500 to-indigo-600 p-6 rounded-xl shadow-lg text-white">
+                        <h2 class="text-3xl font-bold">Dashboard Guru</h2>
+                        <p class="text-blue-100 mt-2">Selamat datang, ${userName}. Kelola jadwal mengajar Anda dengan mudah.</p>
+                    </div>
+
+                    <!-- Tab Navigation -->
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div class="flex border-b border-gray-200">
+                            <button onclick="showGuruTab('today')" id="tab-today" class="flex-1 px-6 py-4 text-sm font-semibold text-primary border-b-2 border-primary bg-blue-50 transition duration-150">
+                                📅 Jadwal Hari Ini
+                            </button>
+                            <button onclick="showGuruTab('all')" id="tab-all" class="flex-1 px-6 py-4 text-sm font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition duration-150">
+                                📚 Semua Jadwal
+                            </button>
+                        </div>
+
+                        <!-- Tab Content: Jadwal Hari Ini -->
+                        <div id="content-today" class="p-6">
+                            <h3 id="today-schedule-title" class="text-xl font-semibold mb-4 text-gray-800">
+                                Jadwal Hari Ini: <span id="current-day" class="font-normal text-primary">Loading...</span>
+                            </h3>
+                            <div id="schedule-list" class="space-y-4">
+                                <p class="text-center text-gray-500" id="schedule-loading">Memuat jadwal...</p>
+                            </div>
+                        </div>
+
+                        <!-- Tab Content: Semua Jadwal -->
+                        <div id="content-all" class="p-6 hidden">
+                            <h3 class="text-xl font-semibold mb-4 text-gray-800">Semua Jadwal Mengajar</h3>
+                            <div id="all-schedule-list">
+                                <p class="text-center text-gray-500">Memuat semua jadwal...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-green-500">
+                        <div class="flex items-center space-x-3">
+                            <svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            <div class="flex-1">
+                                <h3 class="text-lg font-semibold text-gray-800">Status Geolocation</h3>
+                                <p id="geo-status" class="text-sm text-gray-600">Meminta izin lokasi...</p>
+                                <p id="geo-coords" class="text-xs text-gray-400 mt-1"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const geoStatusEl = document.getElementById('geo-status');
+            const geoCoordsEl = document.getElementById('geo-coords');
+
+            try {
+                await getGeolocation();
+                geoStatusEl.textContent = 'Status: Lokasi Berhasil Didapatkan.';
+                geoStatusEl.classList.remove('text-sm');
+                geoStatusEl.classList.add('text-secondary', 'font-bold');
+                geoCoordsEl.textContent = `Lat: ${currentLatitude}, Lon: ${currentLongitude}`;
+            } catch (error) {
+                geoStatusEl.textContent = `Status: ${error.message}`;
+                geoStatusEl.classList.remove('text-sm');
+                geoStatusEl.classList.add('text-danger', 'font-bold');
+            }
+
+            loadGuruSchedule();
+            loadAllGuruSchedule();
+        }
+
+        // Fungsi untuk switch tab
+        function showGuruTab(tab) {
+            const tabToday = document.getElementById('tab-today');
+            const tabAll = document.getElementById('tab-all');
+            const contentToday = document.getElementById('content-today');
+            const contentAll = document.getElementById('content-all');
+
+            if (tab === 'today') {
+                tabToday.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                tabToday.classList.remove('text-gray-600');
+                tabAll.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                tabAll.classList.add('text-gray-600');
+                contentToday.classList.remove('hidden');
+                contentAll.classList.add('hidden');
+            } else {
+                tabAll.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                tabAll.classList.remove('text-gray-600');
+                tabToday.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                tabToday.classList.add('text-gray-600');
+                contentAll.classList.remove('hidden');
+                contentToday.classList.add('hidden');
+            }
+        }
+
+        // Load semua jadwal guru
+        async function loadAllGuruSchedule() {
+            const container = document.getElementById('all-schedule-list');
+            
+            try {
+                // Ambil semua jadwal guru dari endpoint khusus guru
+                const myJadwal = await apiFetch('guru/jadwal_semua');
+                
+                if (myJadwal.length === 0) {
+                    container.innerHTML = '<div class="text-center py-8 text-gray-500">Anda belum memiliki jadwal mengajar.</div>';
+                    return;
+                }
+                
+                // Group by hari
+                const hariList = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                const jadwalPerHari = {};
+                
+                hariList.forEach(hari => {
+                    jadwalPerHari[hari] = myJadwal.filter(j => j.hari === hari);
+                });
+                
+                // Render card per hari
+                let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
+                
+                hariList.forEach(hari => {
+                    const jadwalHari = jadwalPerHari[hari];
+                    
+                    if (jadwalHari.length === 0) return; // Skip hari tanpa jadwal
+                    
+                    const hariColors = {
+                        'Senin': 'from-blue-500 to-blue-600',
+                        'Selasa': 'from-green-500 to-green-600',
+                        'Rabu': 'from-yellow-500 to-yellow-600',
+                        'Kamis': 'from-purple-500 to-purple-600',
+                        'Jumat': 'from-pink-500 to-pink-600',
+                        'Sabtu': 'from-indigo-500 to-indigo-600'
+                    };
+                    
+                    const hariIcons = {
+                        'Senin': '📘',
+                        'Selasa': '📗',
+                        'Rabu': '📙',
+                        'Kamis': '📕',
+                        'Jumat': '📓',
+                        'Sabtu': '📔'
+                    };
+                    
+                    html += `
+                        <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-xl transition-shadow duration-300">
+                            <!-- Header Card -->
+                            <div class="bg-gradient-to-r ${hariColors[hari]} text-white px-6 py-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3">
+                                        <span class="text-3xl">${hariIcons[hari]}</span>
+                                        <div>
+                                            <h4 class="text-xl font-bold">${hari}</h4>
+                                            <p class="text-sm text-white text-opacity-90">${jadwalHari.length} Jadwal</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Body Card -->
+                            <div class="p-4 space-y-3">
+                    `;
+                    
+                    jadwalHari.forEach((item, index) => {
+                        html += `
+                            <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 hover:from-blue-50 hover:to-blue-100 transition-all duration-200 border border-gray-200">
+                                <!-- Jam & Nomor -->
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="flex items-center space-x-2">
+                                        <div class="bg-white p-2 rounded-lg shadow-sm">
+                                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <span class="text-xl font-bold text-gray-900">${item.jam_mulai.substring(0, 5)}</span>
+                                    </div>
+                                    <span class="text-xs bg-blue-500 text-white px-3 py-1 rounded-full font-semibold shadow-sm">Sesi ${index + 1}</span>
+                                </div>
+                                
+                                <!-- Kelas -->
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                    </svg>
+                                    <span class="text-sm font-semibold text-gray-700">${item.kelas}</span>
+                                </div>
+                                
+                                <!-- Mapel -->
+                                <div class="flex items-center space-x-2">
+                                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                                    </svg>
+                                    <span class="text-sm text-gray-700 font-medium">${item.mapel}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                container.innerHTML = html;
+                
+            } catch (error) {
+                container.innerHTML = `<p class="text-center text-red-600">Gagal memuat jadwal: ${error.message}</p>`;
+            }
+        }
+
+        async function loadGuruSchedule() {
+            const listEl = document.getElementById('schedule-list');
+            const dayEl = document.getElementById('current-day');
+            const loadingEl = document.getElementById('schedule-loading');
+            
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            listEl.innerHTML = ''; 
+
+            try {
+                const data = await apiFetch('guru/jadwal_hari_ini');
+                dayEl.textContent = data.hari;
+
+                if (data.jadwal.length === 0) {
+                    listEl.innerHTML = '<div class="p-4 bg-yellow-50 rounded-lg text-center text-gray-600 border border-yellow-200">Tidak ada jadwal mengajar pada hari ' + data.hari + '.</div>';
+                    return;
+                }
+
+                data.jadwal.forEach(session => {
+                    const statusClass = session.status === 'Terlambat' ? 'text-warning' : 'text-secondary';
+                    const timeEntry = session.jam_masuk ? session.jam_masuk.substring(11, 16) : '-';
+
+                    const absensiButton = session.status === 'Belum Absen' ? 
+                        `<button data-id="${session.id_jadwal}" 
+                                class="btn-absensi bg-primary text-white px-4 py-2 rounded-lg shadow-md hover:bg-indigo-600 transition duration-150 disabled:bg-gray-400 flex items-center">
+                            Absen Masuk
+                        </button>` :
+                        `<span class="${statusClass} font-semibold flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0001.414 0l4-4z" clip-rule="evenodd" />
+                            </svg>
+                            ${session.status} (${timeEntry})
+                        </span>`;
+
+                    const item = document.createElement('div');
+                    item.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'border', 'flex', 'justify-between', 'items-center', 'shadow-sm');
+                    item.innerHTML = `
+                        <div>
+                            <p class="text-lg font-bold text-gray-800">${session.jam_mulai.substring(0, 5)} - ${session.mapel}</p>
+                            <p class="text-sm text-gray-600">Kelas: ${session.kelas}</p>
+                        </div>
+                        <div id="status-${session.id_jadwal}">
+                            ${absensiButton}
+                        </div>
+                    `;
+                    listEl.appendChild(item);
+                });
+
+                document.querySelectorAll('.btn-absensi').forEach(button => {
+                    button.addEventListener('click', handleAbsensi);
+                    if (!currentLatitude) {
+                        button.disabled = true;
+                        button.textContent = 'Lokasi Gagal';
+                        button.title = 'Tidak dapat absen karena lokasi GPS tidak tersedia.';
+                    }
+                });
+
+            } catch (error) {
+                listEl.innerHTML = `<p class="text-center text-danger">Gagal memuat jadwal: ${error.message}</p>`;
+            } finally {
+                 if (loadingEl) loadingEl.classList.add('hidden');
+            }
+        }
+
+        async function renderAdminDashboard() {
+            const container = document.getElementById('app-container');
+            container.classList.remove('items-center');
+            container.innerHTML = `
+                <div class="w-full max-w-7xl space-y-8">
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-secondary">
+                        <h2 class="text-2xl font-bold text-gray-800">Dashboard Admin</h2>
+                        <p class="text-gray-500">Selamat datang, ${userName}. Kelola jadwal dan lihat laporan absensi.</p>
+                    </div>
+
+                    <!-- Tabs Navigation -->
+                    <div class="flex border-b border-gray-200">
+                        <button id="tab-guru" onclick="switchAdminTab('guru')" class="tab-btn py-2 px-6 text-sm font-medium text-white bg-secondary rounded-t-lg transition duration-150">Manajemen Guru</button>
+                        <button id="tab-jadwal" onclick="switchAdminTab('jadwal')" class="tab-btn py-2 px-6 text-sm font-medium text-gray-500 hover:text-secondary transition duration-150">Manajemen Jadwal</button>
+                        <button id="tab-laporan" onclick="switchAdminTab('laporan')" class="tab-btn py-2 px-6 text-sm font-medium text-gray-500 hover:text-secondary transition duration-150">Laporan Absensi</button>
+                    </div>
+
+                    <!-- Tabs Content -->
+                    <div id="admin-content" class="bg-white p-6 rounded-xl shadow-lg min-h-[500px]">
+                        <!-- Content will be loaded here -->
+                    </div>
+                </div>
+            `;
+            switchAdminTab('guru');
+        }
+
+        function switchAdminTab(tabName) {
+            const tabs = {
+                'guru': renderManajemenGuru,
+                'jadwal': renderManajemenJadwal,
+                'laporan': renderLaporanAbsensi
+            };
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-secondary', 'text-white');
+                btn.classList.add('text-gray-500', 'hover:text-secondary');
+            });
+
+            document.getElementById(`tab-${tabName}`).classList.add('bg-secondary', 'text-white');
+            document.getElementById(`tab-${tabName}`).classList.remove('text-gray-500', 'hover:text-secondary');
+
+            if (tabs[tabName]) {
+                tabs[tabName]();
+            }
+        }
+
+        async function renderManajemenGuru() {
+            const contentEl = document.getElementById('admin-content');
+            contentEl.innerHTML = `
+                <h3 class="text-2xl font-semibold mb-6 text-gray-800 border-b pb-2">Manajemen Guru</h3>
+                <div class="flex justify-end mb-4">
+                    <button onclick="showAddGuruForm()" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-indigo-600 transition duration-150 shadow-md">Tambah Guru Baru</button>
+                </div>
+                
+                <div id="guru-form-container" class="mb-6 hidden"></div>
+
+                <div id="guru-table-container" class="scrollable-content">
+                    <p class="text-center text-gray-500 mt-10">Memuat data guru...</p>
+                </div>
+            `;
+            loadGuruList();
+        }
+
+        async function loadGuruList() {
+            const tableContainer = document.getElementById('guru-table-container');
+            try {
+                const guruList = await apiFetch('admin/guru');
+                if (guruList.length === 0) {
+                    tableContainer.innerHTML = '<p class="text-center text-gray-500 mt-10">Belum ada guru yang terdaftar.</p>';
+                    return;
+                }
+
+                let html = `
+                    <table class="min-w-full divide-y divide-gray-200 border border-gray-100 rounded-lg overflow-hidden">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Guru</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nomor HP</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                `;
+                guruList.forEach(guru => {
+                    const roleClass = guru.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800';
+                    html += `
+                        <tr class="hover:bg-gray-50 transition duration-100">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${guru.id_guru}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${guru.nama}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${guru.nomor_hp || '-'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${roleClass}">
+                                    ${guru.role}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <button onclick="handleDeleteGuru('${guru.id_guru}')" class="text-danger hover:text-red-700 transition duration-150">Hapus</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                html += `</tbody></table>`;
+                tableContainer.innerHTML = html;
+
+            } catch (error) {
+                tableContainer.innerHTML = `<p class="text-center text-danger mt-10">Gagal memuat data guru: ${error.message}</p>`;
+            }
+        }
+
+        function showAddGuruForm() {
+            const formContainer = document.getElementById('guru-form-container');
+            formContainer.classList.remove('hidden');
+            formContainer.innerHTML = `
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                    <h4 class="text-lg font-semibold mb-4 text-gray-700">Tambah Guru Baru</h4>
+                    <form id="add-guru-form" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">ID Guru</label>
+                                <input type="text" name="id_guru" required placeholder="Contoh: G003" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
+                                <input type="text" name="nama" required placeholder="Nama guru" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Nomor HP</label>
+                                <input type="tel" name="nomor_hp" placeholder="08xxxxxxxxxx" pattern="[0-9]{10,15}" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                                <p class="text-xs text-gray-500 mt-1">Opsional, format: 08xxxxxxxxxx</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <input type="password" name="password" required placeholder="Minimal 6 karakter" minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                                <select name="role" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary">
+                                    <option value="guru">Guru</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 mt-4">
+                            <button type="button" onclick="hideAddGuruForm()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">Batal</button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-indigo-600 transition duration-150">Simpan</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.getElementById('add-guru-form').addEventListener('submit', handleAddGuru);
+        }
+
+        function hideAddGuruForm() {
+            const formContainer = document.getElementById('guru-form-container');
+            formContainer.classList.add('hidden');
+            formContainer.innerHTML = '';
+        }
+
+        async function handleAddGuru(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = {
+                id_guru: form.id_guru.value.trim(),
+                nama: form.nama.value.trim(),
+                nomor_hp: form.nomor_hp.value.trim() || null,
+                password: form.password.value,
+                role: form.role.value
+            };
+
+            try {
+                await apiFetch('admin/guru', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+                showModal('Berhasil', 'Guru berhasil ditambahkan.', 'alert', () => {
+                    hideAddGuruForm();
+                    loadGuruList();
+                });
+            } catch (error) {
+                showModal('Error', 'Gagal menambah guru: ' + error.message);
+            }
+        }
+
+        async function handleDeleteGuru(id_guru) {
+            showModal(
+                'Konfirmasi Hapus',
+                `Apakah Anda yakin ingin menghapus guru ${id_guru}? Semua jadwal dan absensi terkait akan ikut terhapus.`,
+                'confirm',
+                async () => {
+                    try {
+                        await apiFetch(`admin/guru/${id_guru}`, { method: 'DELETE' });
+                        showModal('Berhasil', 'Guru berhasil dihapus.', 'alert', loadGuruList);
+                    } catch (error) {
+                        showModal('Error', 'Gagal menghapus guru: ' + error.message);
+                    }
+                }
+            );
+        }
+
+        async function renderManajemenJadwal() {
+            const contentEl = document.getElementById('admin-content');
+            contentEl.innerHTML = `
+                <h3 class="text-2xl font-semibold mb-6 text-gray-800 border-b pb-2">Manajemen Jadwal Mengajar</h3>
+                <div class="flex justify-end mb-4">
+                    <button onclick="showAddJadwalForm()" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-indigo-600 transition duration-150 shadow-md">Tambah Jadwal Baru</button>
+                </div>
+                
+                <div id="jadwal-form-container" class="mb-6 hidden"></div>
+
+                <div id="jadwal-table-container" class="scrollable-content">
+                    <p class="text-center text-gray-500 mt-10">Memuat data jadwal...</p>
+                </div>
+            `;
+            loadJadwalList();
+        }
+
+        async function loadJadwalList() {
+            const tableContainer = document.getElementById('jadwal-table-container');
+            try {
+                const jadwal = await apiFetch('admin/jadwal');
+                if (jadwal.length === 0) {
+                    tableContainer.innerHTML = '<p class="text-center text-gray-500 mt-10">Belum ada jadwal yang terdaftar.</p>';
+                    return;
+                }
+
+                // Group jadwal by hari
+                const hariList = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                const jadwalPerHari = {};
+                
+                hariList.forEach(hari => {
+                    jadwalPerHari[hari] = jadwal.filter(item => item.hari === hari);
+                });
+
+                let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">';
+                
+                hariList.forEach(hari => {
+                    const jadwalHari = jadwalPerHari[hari];
+                    const hariColors = {
+                        'Senin': 'from-blue-500 to-blue-600',
+                        'Selasa': 'from-green-500 to-green-600',
+                        'Rabu': 'from-yellow-500 to-yellow-600',
+                        'Kamis': 'from-purple-500 to-purple-600',
+                        'Jumat': 'from-pink-500 to-pink-600',
+                        'Sabtu': 'from-indigo-500 to-indigo-600'
+                    };
+                    
+                    const hariIcons = {
+                        'Senin': '📘',
+                        'Selasa': '📗',
+                        'Rabu': '📙',
+                        'Kamis': '📕',
+                        'Jumat': '📓',
+                        'Sabtu': '📔'
+                    };
+                    
+                    html += `
+                        <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-xl transition-shadow duration-300">
+                            <!-- Header Card -->
+                            <div class="bg-gradient-to-r ${hariColors[hari]} text-white px-6 py-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center space-x-3">
+                                        <span class="text-3xl">${hariIcons[hari]}</span>
+                                        <div>
+                                            <h4 class="text-xl font-bold">${hari}</h4>
+                                            <p class="text-sm text-white text-opacity-90">${jadwalHari.length} Jadwal</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Body Card -->
+                            <div class="p-4">
+                    `;
+                    
+                    if (jadwalHari.length === 0) {
+                        html += `
+                            <div class="text-center py-8 text-gray-400">
+                                <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                                <p class="mt-2 text-sm">Tidak ada jadwal</p>
+                            </div>
+                        `;
+                    } else {
+                        html += '<div class="space-y-3">';
+                        
+                        jadwalHari.forEach((item, index) => {
+                            html += `
+                                <div class="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors duration-200 border border-gray-200">
+                                    <!-- Jam -->
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center space-x-2">
+                                            <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            <span class="text-lg font-bold text-gray-900">${item.jam_mulai.substring(0, 5)}</span>
+                                        </div>
+                                        <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">#${index + 1}</span>
+                                    </div>
+                                    
+                                    <!-- Guru -->
+                                    <div class="flex items-start space-x-2 mb-2">
+                                        <svg class="w-5 h-5 text-gray-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                        </svg>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-900">${item.nama}</p>
+                                            <p class="text-xs text-gray-500">${item.id_guru}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Kelas & Mapel -->
+                                    <div class="space-y-1 mb-3">
+                                        <div class="flex items-center space-x-2">
+                                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                            </svg>
+                                            <span class="text-sm text-gray-700">${item.kelas}</span>
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                                            </svg>
+                                            <span class="text-sm text-gray-700 font-medium">${item.mapel}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Aksi -->
+                                    <div class="flex items-center justify-end space-x-2 pt-2 border-t border-gray-200">
+                                        <button onclick="showEditJadwalForm(${item.id_jadwal}, '${item.id_guru}', '${item.kelas.replace(/'/g, "\\'")}', '${item.mapel.replace(/'/g, "\\'")}', '${item.hari}', '${item.jam_mulai}')" 
+                                            class="flex items-center space-x-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition duration-150 px-3 py-1.5 rounded-md hover:bg-blue-50">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                            </svg>
+                                            <span>Edit</span>
+                                        </button>
+                                        <button onclick="handleDeleteJadwal(${item.id_jadwal})" 
+                                            class="flex items-center space-x-1 text-xs text-red-600 hover:text-red-800 font-medium transition duration-150 px-3 py-1.5 rounded-md hover:bg-red-50">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                            </svg>
+                                            <span>Hapus</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += '</div>';
+                    }
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                tableContainer.innerHTML = html;
+
+            } catch (error) {
+                tableContainer.innerHTML = `<p class="text-center text-danger mt-10">Gagal memuat jadwal: ${error.message}</p>`;
+            }
+        }
+
+        async function showAddJadwalForm() {
+            const container = document.getElementById('jadwal-form-container');
+            let guruList = [];
+            try {
+                guruList = await apiFetch('admin/guru');
+            } catch (error) {
+                showModal('Error', 'Gagal memuat daftar guru: ' + error.message);
+                return;
+            }
+
+            const guruOptions = guruList.map(g => `<option value="${g.id_guru}">${g.nama} (${g.id_guru})</option>`).join('');
+
+            container.innerHTML = `
+                <div class="p-6 bg-blue-50 border border-blue-200 rounded-lg shadow-inner">
+                    <h4 class="text-xl font-semibold mb-4 text-primary">Tambah Jadwal</h4>
+                    <form id="add-jadwal-form" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Guru</label>
+                                <select name="id_guru" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                                    <option value="">Pilih Guru</option>
+                                    ${guruOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Kelas</label>
+                                <input type="text" name="kelas" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary" placeholder="Contoh: 10 IPA 1">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Mata Pelajaran</label>
+                                <input type="text" name="mapel" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary" placeholder="Contoh: Matematika">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Hari</label>
+                                <select name="hari" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                                    <option value="Senin">Senin</option>
+                                    <option value="Selasa">Selasa</option>
+                                    <option value="Rabu">Rabu</option>
+                                    <option value="Kamis">Kamis</option>
+                                    <option value="Jumat">Jumat</option>
+                                    <option value="Sabtu">Sabtu</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Jam Mulai (HH:MM)</label>
+                                <input type="time" name="jam_mulai" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 mt-6">
+                            <button type="button" onclick="hideAddJadwalForm()" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition duration-150">Batal</button>
+                            <button type="submit" class="px-4 py-2 bg-secondary text-white rounded-lg hover:bg-emerald-600 transition duration-150">Simpan Jadwal</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            container.classList.remove('hidden');
+            document.getElementById('add-jadwal-form').addEventListener('submit', handleAddJadwal);
+        }
+
+        function hideAddJadwalForm() {
+            document.getElementById('jadwal-form-container').classList.add('hidden');
+            document.getElementById('jadwal-form-container').innerHTML = '';
+        }
+
+        async function handleAddJadwal(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = {
+                id_guru: form.id_guru.value,
+                kelas: form.kelas.value,
+                mapel: form.mapel.value,
+                hari: form.hari.value,
+                jam_mulai: form.jam_mulai.value + ':00' 
+            };
+
+            try {
+                await apiFetch('admin/jadwal', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+                showModal('Berhasil', 'Jadwal berhasil ditambahkan!', 'alert', () => {
+                    hideAddJadwalForm();
+                    loadJadwalList();
+                });
+            } catch (error) {
+                showModal('Error', 'Gagal menambah jadwal: ' + error.message);
+            }
+        }
+
+        async function showEditJadwalForm(id_jadwal, id_guru, kelas, mapel, hari, jam_mulai) {
+            const container = document.getElementById('jadwal-form-container');
+            let guruList = [];
+            try {
+                guruList = await apiFetch('admin/guru');
+            } catch (error) {
+                showModal('Error', 'Gagal memuat daftar guru: ' + error.message);
+                return;
+            }
+
+            const guruOptions = guruList.map(g => 
+                `<option value="${g.id_guru}" ${g.id_guru === id_guru ? 'selected' : ''}>${g.nama} (${g.id_guru})</option>`
+            ).join('');
+
+            const hariOptions = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'].map(h =>
+                `<option value="${h}" ${h === hari ? 'selected' : ''}>${h}</option>`
+            ).join('');
+
+            container.innerHTML = `
+                <div class="p-6 bg-yellow-50 border border-yellow-200 rounded-lg shadow-inner">
+                    <h4 class="text-xl font-semibold mb-4 text-yellow-700">Edit Jadwal</h4>
+                    <form id="edit-jadwal-form" class="space-y-4">
+                        <input type="hidden" name="id_jadwal" value="${id_jadwal}">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Guru</label>
+                                <select name="id_guru" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                                    <option value="">Pilih Guru</option>
+                                    ${guruOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Kelas</label>
+                                <input type="text" name="kelas" value="${kelas}" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Mata Pelajaran</label>
+                                <input type="text" name="mapel" value="${mapel}" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Hari</label>
+                                <select name="hari" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                                    ${hariOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Jam Mulai</label>
+                                <input type="time" name="jam_mulai" value="${jam_mulai.substring(0, 5)}" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary focus:border-primary">
+                            </div>
+                        </div>
+                        <div class="flex justify-end space-x-3 pt-4">
+                            <button type="button" onclick="hideAddJadwalForm()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">Batal</button>
+                            <button type="submit" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition duration-150">Update</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            container.classList.remove('hidden');
+            document.getElementById('edit-jadwal-form').addEventListener('submit', handleEditJadwal);
+        }
+
+        async function handleEditJadwal(event) {
+            event.preventDefault();
+            const form = event.target;
+            const id_jadwal = form.id_jadwal.value;
+            const data = {
+                id_guru: form.id_guru.value,
+                kelas: form.kelas.value.trim(),
+                mapel: form.mapel.value.trim(),
+                hari: form.hari.value,
+                jam_mulai: form.jam_mulai.value
+            };
+
+            try {
+                await apiFetch(`admin/jadwal/${id_jadwal}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data)
+                });
+                showModal('Berhasil', 'Jadwal berhasil diupdate!', 'alert', () => {
+                    hideAddJadwalForm();
+                    loadJadwalList();
+                });
+            } catch (error) {
+                showModal('Error', 'Gagal update jadwal: ' + error.message);
+            }
+        }
+
+        function handleDeleteJadwal(id_jadwal) {
+            showModal(
+                'Konfirmasi Hapus',
+                'Apakah Anda yakin ingin menghapus jadwal ini? Tindakan ini tidak dapat dibatalkan.',
+                'confirm',
+                async () => {
+                    try {
+                        await apiFetch(`admin/jadwal/${id_jadwal}`, { method: 'DELETE' });
+                        showModal('Berhasil', 'Jadwal berhasil dihapus.', 'alert', loadJadwalList);
+                    } catch (error) {
+                        showModal('Error', 'Gagal menghapus jadwal: ' + error.message);
+                    }
+                }
+            );
+        }
+
+        async function renderLaporanAbsensi() {
+            const contentEl = document.getElementById('admin-content');
+            
+            let guruList = [];
+            try {
+                guruList = await apiFetch('admin/guru');
+            } catch (error) {
+                console.error("Gagal memuat daftar guru untuk filter:", error);
+            }
+            const guruOptions = guruList.map(g => `<option value="${g.id_guru}">${g.nama}</option>`).join('');
+
+            contentEl.innerHTML = `
+                <h3 class="text-2xl font-semibold mb-6 text-gray-800 border-b pb-2">Laporan Absensi Guru</h3>
+                
+                <!-- Filter Form -->
+                <form id="laporan-filter-form" class="mb-6 p-4 bg-gray-50 rounded-lg border flex flex-wrap gap-4 items-end">
+                    <div>
+                        <label for="filter-tanggal" class="block text-sm font-medium text-gray-700">Tanggal</label>
+                        <input type="date" id="filter-tanggal" name="tanggal" class="mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-secondary focus:border-secondary">
+                    </div>
+                    <div>
+                        <label for="filter-guru" class="block text-sm font-medium text-gray-700">Guru</label>
+                        <select id="filter-guru" name="id_guru" class="mt-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-secondary focus:border-secondary">
+                            <option value="">Semua Guru</option>
+                            ${guruOptions}
+                        </select>
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-secondary text-white rounded-lg hover:bg-emerald-600 transition duration-150 shadow-md">Terapkan Filter</button>
+                </form>
+
+                <!-- Laporan Table -->
+                <div id="laporan-table-container" class="scrollable-content">
+                    <p class="text-center text-gray-500 mt-10">Silakan terapkan filter untuk melihat laporan.</p>
+                </div>
+            `;
+            
+            document.getElementById('laporan-filter-form').addEventListener('submit', handleLaporanFilter);
+            loadLaporanAbsensi(); 
+        }
+
+        async function loadLaporanAbsensi(filters = {}) {
+            const tableContainer = document.getElementById('laporan-table-container');
+            const queryString = new URLSearchParams(filters).toString();
+            tableContainer.innerHTML = '<p class="text-center text-gray-500 mt-10">Memuat laporan...</p>';
+
+            try {
+                const laporan = await apiFetch(`admin/laporan_absensi&${queryString}`);
+                
+                if (laporan.length === 0) {
+                    tableContainer.innerHTML = '<p class="text-center text-gray-500 mt-10">Tidak ada data absensi yang ditemukan untuk filter ini.</p>';
+                    return;
+                }
+
+                let html = `
+                    <table class="min-w-full divide-y divide-gray-200 border border-gray-100 rounded-lg overflow-hidden">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Guru</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sesi</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jam Masuk</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                `;
+                laporan.forEach(item => {
+                    let statusClass = '';
+                    switch (item.status) {
+                        case 'Hadir': statusClass = 'bg-secondary text-white'; break;
+                        case 'Terlambat': statusClass = 'bg-warning text-gray-900'; break;
+                        case 'Mangkir': 
+                        case 'Belum Absen': statusClass = 'bg-danger text-white'; break;
+                    }
+
+                    const datePart = item.tanggal;
+                    const timePart = item.jam_masuk ? item.jam_masuk.substring(11, 16) : '-';
+
+                    html += `
+                        <tr class="hover:bg-gray-50 transition duration-100">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${datePart}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.nama_guru}</td>
+                            <td class="px-6 py-4 text-sm text-gray-500">${item.mapel} / ${item.kelas} (${item.jam_mulai.substring(0, 5)})</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${timePart}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
+                                    ${item.status}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                html += `</tbody></table>`;
+                tableContainer.innerHTML = html;
+
+            } catch (error) {
+                tableContainer.innerHTML = `<p class="text-center text-danger mt-10">Gagal memuat laporan: ${error.message}</p>`;
+            }
+        }
+
+        function handleLaporanFilter(event) {
+            event.preventDefault();
+            const form = event.target;
+            const filters = {
+                tanggal: form.tanggal.value,
+                id_guru: form.id_guru.value
+            };
+            loadLaporanAbsensi(filters);
+        }
+
+        // ===============================================
+        //           MAIN HANDLERS (Sama seperti sebelumnya)
+        // ===============================================
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const id_guru = document.getElementById('id_guru').value;
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('login-btn');
+            const textEl = document.getElementById('login-text');
+            const spinner = document.getElementById('login-spinner');
+            const messageEl = document.getElementById('login-message');
+
+            messageEl.classList.add('hidden');
+            btn.disabled = true;
+            textEl.textContent = 'Memuat...';
+            spinner.classList.remove('hidden');
+
+            try {
+                const data = await apiFetch('login', {
+                    method: 'POST',
+                    body: JSON.stringify({ id_guru, password })
+                });
+
+                if (data) {
+                    userToken = data.token; // ID Guru digunakan sebagai token
+                    userRole = data.role;
+                    userName = data.nama;
+                    userId = id_guru;
+
+                    localStorage.setItem('absensiToken', userToken);
+                    localStorage.setItem('absensiRole', userRole);
+                    localStorage.setItem('absensiName', userName);
+                    localStorage.setItem('absensiId', userId);
+
+                    currentView = userRole === 'admin' ? 'admin' : 'guru';
+                    renderApp(); 
+                }
+            } catch (error) {
+                messageEl.textContent = error.message;
+                messageEl.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                textEl.textContent = 'Masuk';
+                spinner.classList.add('hidden');
+            }
+        }
+
+        async function handleAbsensi(event) {
+            const button = event.target.closest('button');
+            const id_jadwal = button.getAttribute('data-id');
+            const statusContainer = document.getElementById(`status-${id_jadwal}`);
+
+            if (!currentLatitude) {
+                showModal('Error Lokasi', 'Lokasi GPS belum tersedia. Harap pastikan izin lokasi diberikan dan coba lagi.', 'alert', async () => {
+                     try {
+                        await getGeolocation();
+                        button.disabled = false;
+                        button.textContent = 'Absen Masuk';
+                        button.title = '';
+                    } catch(err) {
+                        console.error('Retry Geolocation Failed:', err.message);
+                    }
+                });
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = 'Memproses...';
+
+            const data = {
+                latitude: currentLatitude,
+                longitude: currentLongitude
+            };
+
+            try {
+                const result = await apiFetch(`guru/absensi/${id_jadwal}`, {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+
+                showModal('Absensi Berhasil', `${result.message} Jam masuk: ${result.jam_masuk}.`, 'alert', loadGuruSchedule);
+
+            } catch (error) {
+                showModal('Gagal Absen', error.message, 'alert', loadGuruSchedule);
+            } finally {
+                // Setelah selesai, load ulang jadwal untuk refresh status
+            }
+        }
+
+        function logout() {
+            userToken = null;
+            userRole = null;
+            userName = null;
+            userId = null;
+            localStorage.removeItem('absensiToken');
+            localStorage.removeItem('absensiRole');
+            localStorage.removeItem('absensiName');
+            localStorage.removeItem('absensiId');
+            currentView = 'login';
+            renderApp();
+        }
+
+        function updateUserInfo() {
+            const userInfoEl = document.getElementById('user-info');
+            if (userToken && userName) {
+                userInfoEl.innerHTML = `
+                    <span class="text-sm font-medium text-gray-700 hidden sm:block">${userName} (${userRole.toUpperCase()})</span>
+                    <button onclick="logout()" class="px-3 py-1 bg-danger text-white rounded-lg text-sm hover:bg-red-600 transition duration-150 shadow-sm">
+                        Logout
+                    </button>
+                `;
+            } else {
+                userInfoEl.innerHTML = '';
+            }
+        }
+
+        function renderApp() {
+            updateUserInfo();
+            const container = document.getElementById('app-container');
+            container.innerHTML = ''; 
+            
+            switch (currentView) {
+                case 'guru':
+                    renderGuruDashboard();
+                    break;
+                case 'admin':
+                    renderAdminDashboard();
+                    break;
+                case 'login':
+                default:
+                    renderLogin();
+                    break;
+            }
+        }
+
+        // Saat aplikasi dimuat, render app langsung jika ada token
+        document.addEventListener('DOMContentLoaded', () => {
+            // Jika ada token dan data user lengkap, langsung render dashboard
+            if (userToken && userRole && userName && userId) {
+                console.log('Token ditemukan, login otomatis sebagai:', userName);
+                currentView = userRole === 'admin' ? 'admin' : 'guru';
+            } else {
+                // Jika data tidak lengkap, bersihkan semua dan ke login
+                if (userToken || userRole || userName || userId) {
+                    console.log('Data login tidak lengkap, membersihkan localStorage...');
+                    localStorage.clear();
+                    userToken = null;
+                    userRole = null;
+                    userName = null;
+                    userId = null;
+                }
+                currentView = 'login';
+            }
+            renderApp();
+        });
+
+    </script>
+</body>
+</html>
