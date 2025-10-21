@@ -1,0 +1,87 @@
+<?php
+/**
+ * Template Konfigurasi Fonnte WhatsApp API
+ * 
+ * INSTRUKSI:
+ * 1. Copy file ini menjadi 'fonnte_config.php'
+ * 2. Daftar di https://fonnte.com dan dapatkan token API
+ * 3. Dapatkan Group ID dari grup WhatsApp Anda
+ * 4. Isi konfigurasi di bawah dengan data Anda
+ * 5. File 'fonnte_config.php' tidak akan masuk ke Git (sudah ada di .gitignore)
+ */
+
+// ============================================
+// KONFIGURASI FONNTE API
+// ============================================
+
+define('FONNTE_API_URL', 'https://api.fonnte.com/send');
+define('FONNTE_TOKEN', 'YOUR_FONNTE_TOKEN_HERE'); // Token dari dashboard Fonnte
+define('FONNTE_GROUP_ID', 'YOUR_GROUP_ID_HERE@g.us'); // ID Grup WhatsApp
+
+// ============================================
+// FUNGSI UTAMA
+// ============================================
+
+/**
+ * Kirim notifikasi WhatsApp ke grup
+ * 
+ * @param string $message Pesan yang akan dikirim
+ * @return array Response dari API Fonnte
+ */
+function kirimNotifikasiWhatsApp($message) {
+    $curl = curl_init();
+
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => FONNTE_API_URL,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'POST',
+        CURLOPT_POSTFIELDS => array(
+            'target' => FONNTE_GROUP_ID,
+            'message' => $message,
+            'countryCode' => '62'
+        ),
+        CURLOPT_HTTPHEADER => array(
+            'Authorization: ' . FONNTE_TOKEN
+        ),
+    ));
+
+    $response = curl_exec($curl);
+    $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    
+    curl_close($curl);
+    
+    return [
+        'success' => ($httpCode === 200),
+        'http_code' => $httpCode,
+        'response' => json_decode($response, true)
+    ];
+}
+
+/**
+ * Format pesan absensi untuk WhatsApp
+ * 
+ * @param array $data Data absensi (nama, kelas, mapel, status, jam)
+ * @return string Pesan terformat
+ */
+function formatPesanAbsensi($data) {
+    $emoji = $data['status'] === 'Hadir' ? '✅' : '⚠️';
+    
+    $pesan = "{$emoji} *NOTIFIKASI ABSENSI GURU*\n\n";
+    $pesan .= "👤 *Nama:* {$data['nama']}\n";
+    $pesan .= "🏫 *Kelas:* {$data['kelas']}\n";
+    $pesan .= "📚 *Mapel:* {$data['mapel']}\n";
+    $pesan .= "📅 *Tanggal:* {$data['tanggal']}\n";
+    $pesan .= "🕐 *Jam:* {$data['jam']}\n";
+    $pesan .= "📊 *Status:* {$data['status']}\n";
+    
+    if (!empty($data['latitude']) && !empty($data['longitude'])) {
+        $pesan .= "📍 *Lokasi:* https://www.google.com/maps?q={$data['latitude']},{$data['longitude']}\n";
+    }
+    
+    return $pesan;
+}

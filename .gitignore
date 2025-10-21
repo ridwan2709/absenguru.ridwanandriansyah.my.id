@@ -1,0 +1,28 @@
+# File konfigurasi database (sensitive)
+koneksi.php
+
+# File konfigurasi WhatsApp (sensitive)
+#fonnte_config.php
+
+# Vendor dependencies
+vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

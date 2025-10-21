@@ -1,0 +1,15 @@
+<?php
+/**
+ * Template Konfigurasi Database
+ * 
+ * INSTRUKSI:
+ * 1. Copy file ini menjadi 'koneksi.php'
+ * 2. Sesuaikan nilai konfigurasi dengan database Anda
+ * 3. File 'koneksi.php' tidak akan masuk ke Git (sudah ada di .gitignore)
+ */
+
+// Konfigurasi Database
+define('DB_HOST', 'localhost');        // Host database (biasanya localhost)
+define('DB_USER', 'root');             // Username database
+define('DB_PASSWORD', '');             // Password database
+define('DB_NAME', 'absensi_guru_db');  // Nama database
