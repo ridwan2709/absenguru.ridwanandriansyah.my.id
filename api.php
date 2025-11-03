@@ -38,6 +38,81 @@ $input_data = json_decode(file_get_contents("php://input"), true);
 $request_method = $_SERVER["REQUEST_METHOD"];
 
 // Koneksi Database
+try {
+    $db = getDBConnection();
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode([
+        'message' => 'Gagal terhubung ke database',
+        'error' => $e->getMessage()
+    ]);
+    exit();
+}
+
+$route = $_GET['route'] ?? '';
+
+// Endpoint untuk mendapatkan data sekolah
+if ($route === 'sekolah' && $request_method === 'GET') {
+    try {
+        // Cek apakah tabel school_location ada
+        $tableExists = $db->query("SHOW TABLES LIKE 'school_location'")->rowCount() > 0;
+        
+        if (!$tableExists) {
+            // Buat tabel jika belum ada
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS school_location (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    address TEXT NOT NULL,
+                    latitude DECIMAL(10, 8) NOT NULL,
+                    longitude DECIMAL(11, 8) NOT NULL,
+                    radius DECIMAL(10, 2) NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+                
+                -- Insert data default jika tabel kosong
+                INSERT INTO school_location (name, address, latitude, longitude, radius)
+                SELECT 'Sekolah Dasar Contoh', 'Jl. Contoh No. 123, Jakarta', -6.9486, 106.9810, 100.00
+                FROM DUAL
+                WHERE NOT EXISTS (SELECT 1 FROM school_location LIMIT 1);
+            
+            ");
+        }
+        
+        $stmt = $db->query("SELECT * FROM school_location LIMIT 1");
+        $sekolah = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$sekolah) {
+            // Jika data sekolah belum ada, kembalikan nilai default
+            echo json_encode([
+                'latitude' => -6.9486,
+                'longitude' => 106.9810,
+                'nama_sekolah' => 'Sekolah',
+                'alamat' => 'Jl. Contoh No. 123, SUKABUMI',
+                'radius' => 100.00
+            ]);
+            exit();
+        }
+        
+        echo json_encode([
+            'latitude' => (float)$sekolah['latitude'],
+            'longitude' => (float)$sekolah['longitude'],
+            'nama_sekolah' => $sekolah['name'],
+            'alamat' => $sekolah['address'],
+            'radius' => (float)$sekolah['radius']
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'message' => 'Gagal mengambil data sekolah',
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+    exit();
+}
+
+// Koneksi Database
 function getDBConnection() {
     try {
         $conn = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8", DB_USER, DB_PASSWORD);
@@ -190,12 +265,113 @@ if ($route === 'sekolah' && $request_method === 'GET') {
             'trace' => $e->getTraceAsString()
         ]);
     }
+}
+
+// Endpoint untuk mengupdate data sekolah
+if ($route === 'sekolah/update' && $request_method === 'POST') {
+    try {
+        $user = authenticateUser($db);
+        
+        // Pastikan hanya admin yang bisa mengupdate
+        if ($user['role'] !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['message' => 'Anda tidak memiliki izin untuk mengubah data sekolah']);
+            exit();
+        }
+
+        $data = json_decode(file_get_contents('php://input'), true);
+        
+        // Validasi input
+        if (empty($data['nama_sekolah']) || empty($data['alamat']) || 
+            !isset($data['latitude']) || !isset($data['longitude']) || 
+            !isset($data['radius'])) {
+            http_response_code(400);
+            echo json_encode(['message' => 'Semua field harus diisi']);
+            exit();
+        }
+
+        // Pastikan tabel school_location ada
+        $tableExists = $db->query("SHOW TABLES LIKE 'school_location'")->rowCount() > 0;
+        
+        if (!$tableExists) {
+            // Buat tabel jika belum ada
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS school_location (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    address TEXT NOT NULL,
+                    latitude DECIMAL(10, 8) NOT NULL,
+                    longitude DECIMAL(11, 8) NOT NULL,
+                    radius DECIMAL(10, 2) NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            
+                -- Insert data default jika tabel kosong
+                INSERT INTO school_location (name, address, latitude, longitude, radius)
+                SELECT 'Sekolah Dasar Contoh', 'Jl. Contoh No. 123, Jakarta', -6.9486, 106.9810, 100.00
+                FROM DUAL
+                WHERE NOT EXISTS (SELECT 1 FROM school_location LIMIT 1);
+            ");
+        }
+
+        // Cek apakah data sekolah sudah ada
+        $checkStmt = $db->query("SELECT id FROM school_location LIMIT 1");
+        $schoolExists = $checkStmt->rowCount() > 0;
+        
+        if ($schoolExists) {
+            // Update data sekolah yang sudah ada
+            $stmt = $db->prepare("UPDATE school_location SET 
+                name = :name, 
+                address = :address, 
+                latitude = :latitude, 
+                longitude = :longitude, 
+                radius = :radius
+                ORDER BY id ASC LIMIT 1");
+                
+            $stmt->execute([
+                ':name' => $data['nama_sekolah'],
+                ':address' => $data['alamat'],
+                ':latitude' => (float)$data['latitude'],
+                ':longitude' => (float)$data['longitude'],
+                ':radius' => (float)$data['radius']
+            ]);
+        } else {
+            // Insert data sekolah baru
+            $stmt = $db->prepare("INSERT INTO school_location 
+                (name, address, latitude, longitude, radius) 
+                VALUES (:name, :address, :latitude, :longitude, :radius)");
+                
+            $stmt->execute([
+                ':name' => $data['nama_sekolah'],
+                ':address' => $data['alamat'],
+                ':latitude' => (float)$data['latitude'],
+                ':longitude' => (float)$data['longitude'],
+                ':radius' => (float)$data['radius']
+            ]);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Data sekolah berhasil diperbarui',
+            'data' => [
+                'nama_sekolah' => $data['nama_sekolah'],
+                'alamat' => $data['alamat'],
+                'latitude' => (float)$data['latitude'],
+                'longitude' => (float)$data['longitude'],
+                'radius' => (float)$data['radius']
+            ]
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Gagal memperbarui data sekolah',
+            'error' => $e->getMessage()
+        ]);
+    }
     exit();
 }
 
-
-$db = getDBConnection();
-$route = $_GET['route'] ?? '';
 
 // --- 1. LOGIN ---
 if ($route === 'login' && $request_method === 'POST') {
@@ -681,5 +857,12 @@ if ($route === 'admin/test_whatsapp' && $request_method === 'POST') {
 
 // --- ROUTE NOT FOUND ---
 http_response_code(404);
-echo json_encode(["message" => "Endpoint tidak ditemukan."]);
+echo json_encode([
+    'message' => 'Endpoint tidak ditemukan: ' . $route,
+    'method' => $request_method,
+    'available_endpoints' => [
+        'GET /api.php?route=sekolah' => 'Mendapatkan data sekolah',
+        'POST /api.php?route=sekolah/update' => 'Mengupdate data sekolah (admin only)'
+    ]
+]);
 ?>
