@@ -465,6 +465,116 @@ if ($route === 'guru/jadwal_semua' && $request_method === 'GET') {
     exit();
 }
 
+// --- 2B. GURU: GET PROFIL ---
+if ($route === 'guru/profile' && $request_method === 'GET') {
+    try {
+        $user = authenticateUser($db);
+        
+        // Ambil data profil dari database menggunakan PDO
+        $stmt = $db->prepare("SELECT nama, nomor_hp FROM guru WHERE id_guru = :id_guru");
+        $stmt->execute([':id_guru' => $user['id_guru']]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$profile) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Data guru tidak ditemukan']);
+            exit;
+        }
+        
+        echo json_encode(['success' => true, 'data' => $profile]);
+        
+    } catch (Exception $e) {
+        http_response_code(500);
+        error_log('Error in guru/profile: ' . $e->getMessage());
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Terjadi kesalahan server',
+            'debug' => (isset($e) ? $e->getMessage() : 'Unknown error')
+        ]);
+    }
+    exit;
+}
+
+// --- 2C. GURU: UPDATE PROFIL ---
+if ($route === 'guru/update_profile' && $request_method === 'POST') {
+    $user = authenticateUser($db);
+    $id_guru = $user['id_guru'];
+    
+    $nama = $input_data['nama'] ?? null;
+    $nomor_hp = $input_data['nomor_hp'] ?? null;
+    $current_password = $input_data['current_password'] ?? '';
+    $new_password = $input_data['new_password'] ?? '';
+    $confirm_password = $input_data['confirm_password'] ?? '';
+    
+    try {
+        // Validasi input
+        if (empty($nama)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Nama tidak boleh kosong']);
+            exit();
+        }
+        
+        // Jika ada input password baru, validasi
+        if (!empty($new_password)) {
+            if (strlen($new_password) < 6) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Password baru minimal 6 karakter']);
+                exit();
+            }
+            
+            if ($new_password !== $confirm_password) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Konfirmasi password tidak cocok']);
+                exit();
+            }
+            
+            // Verifikasi password lama jika ingin ganti password
+            $stmt = $db->prepare("SELECT password_hash FROM guru WHERE id_guru = ?");
+            $stmt->execute([$id_guru]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!password_verify($current_password, $user['password_hash'])) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'Password saat ini tidak valid']);
+                exit();
+            }
+            
+            // Hash password baru
+            $password_hash = password_hash($new_password, PASSWORD_DEFAULT);
+        }
+        
+        // Update data guru
+        if (isset($password_hash)) {
+            $stmt = $db->prepare("UPDATE guru SET nama = ?, nomor_hp = ?, password_hash = ? WHERE id_guru = ?");
+            $result = $stmt->execute([$nama, $nomor_hp, $password_hash, $id_guru]);
+        } else {
+            $stmt = $db->prepare("UPDATE guru SET nama = ?, nomor_hp = ? WHERE id_guru = ?");
+            $result = $stmt->execute([$nama, $nomor_hp, $id_guru]);
+        }
+        
+        if ($result) {
+            echo json_encode([
+                'success' => true, 
+                'message' => 'Profil berhasil diperbarui',
+                'data' => [
+                    'nama' => $nama,
+                    'nomor_hp' => $nomor_hp
+                ]
+            ]);
+        } else {
+            throw new Exception('Gagal memperbarui profil');
+        }
+        
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+        ]);
+    }
+    exit();
+}
+
 // --- 3. GURU: ABSENSI SESI ---
 if (preg_match('/^guru\/absensi\/(\d+)$/', $route, $matches) && $request_method === 'POST') {
     $id_jadwal = $matches[1];

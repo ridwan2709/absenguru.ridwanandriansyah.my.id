@@ -519,6 +519,9 @@
                             <button onclick="showGuruTab('all')" id="tab-all" class="flex-1 px-6 py-4 text-sm font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition duration-150">
                                 📚 Semua Jadwal
                             </button>
+                            <button onclick="showGuruTab('profile')" id="tab-profile" class="flex-1 px-6 py-4 text-sm font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition duration-150">
+                                👤 Profil Saya
+                            </button>
                         </div>
 
                         <!-- Tab Content: Jadwal Hari Ini -->
@@ -537,6 +540,59 @@
                             <div id="all-schedule-list">
                                 <p class="text-center text-gray-500">Memuat semua jadwal...</p>
                             </div>
+                        </div>
+
+                        <!-- Tab Content: Profil -->
+                        <div id="content-profile" class="p-6 hidden">
+                            <h3 class="text-xl font-semibold mb-6 text-gray-800">Profil Saya</h3>
+                            <form onsubmit="updateProfile(event)" class="max-w-lg mx-auto">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="profile-nama" class="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
+                                        <input type="text" id="profile-nama" required
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label for="profile-nomor-hp" class="block text-sm font-medium text-gray-700 mb-1">Nomor HP</label>
+                                        <input type="tel" id="profile-nomor-hp"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    
+                                    <div class="pt-4 mt-6 border-t border-gray-200">
+                                        <h4 class="text-md font-medium text-gray-800 mb-4">Ubah Password</h4>
+                                        <div class="space-y-4">
+                                            <div>
+                                                <label for="current-password" class="block text-sm font-medium text-gray-700 mb-1">Password Saat Ini</label>
+                                                <input type="password" id="current-password"
+                                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            </div>
+                                            <div>
+                                                <label for="new-password" class="block text-sm font-medium text-gray-700 mb-1">Password Baru</label>
+                                                <input type="password" id="new-password"
+                                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                    placeholder="Kosongkan jika tidak ingin mengubah">
+                                            </div>
+                                            <div>
+                                                <label for="confirm-password" class="block text-sm font-medium text-gray-700 mb-1">Konfirmasi Password Baru</label>
+                                                <input type="password" id="confirm-password"
+                                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="pt-4">
+                                        <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-150 flex items-center justify-center">
+                                            <span id="profile-submit-text">Simpan Perubahan</span>
+                                            <div id="profile-submit-spinner" class="hidden ml-2">
+                                                <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
                         </div>
                     </div>
 
@@ -598,23 +654,38 @@
         function showGuruTab(tab) {
             const tabToday = document.getElementById('tab-today');
             const tabAll = document.getElementById('tab-all');
+            const tabProfile = document.getElementById('tab-profile');
             const contentToday = document.getElementById('content-today');
             const contentAll = document.getElementById('content-all');
+            const contentProfile = document.getElementById('content-profile');
 
-            if (tab === 'today') {
-                tabToday.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                tabToday.classList.remove('text-gray-600');
-                tabAll.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                tabAll.classList.add('text-gray-600');
-                contentToday.classList.remove('hidden');
-                contentAll.classList.add('hidden');
-            } else {
-                tabAll.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                tabAll.classList.remove('text-gray-600');
-                tabToday.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                tabToday.classList.add('text-gray-600');
-                contentAll.classList.remove('hidden');
-                contentToday.classList.add('hidden');
+            // Reset all tabs
+            [tabToday, tabAll, tabProfile].forEach(t => {
+                t.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                t.classList.add('text-gray-600');
+            });
+
+            // Hide all contents
+            [contentToday, contentAll, contentProfile].forEach(c => {
+                c?.classList.add('hidden');
+            });
+
+            // Activate selected tab and show corresponding content
+            switch(tab) {
+                case 'today':
+                    tabToday.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                    contentToday.classList.remove('hidden');
+                    break;
+                case 'all':
+                    tabAll.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                    contentAll.classList.remove('hidden');
+                    break;
+                case 'profile':
+                    tabProfile.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
+                    contentProfile.classList.remove('hidden');
+                    // Load profile data when profile tab is clicked
+                    loadProfileData();
+                    break;
             }
         }
 
@@ -2202,7 +2273,96 @@
             }, 10000);
         }
 
-        // Saat aplikasi dimuat, render app langsung jika ada token
+        // Fungsi untuk mengupdate profil guru
+async function updateProfile(event) {
+    event.preventDefault();
+    
+    const form = event.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const submitText = submitBtn.querySelector('#profile-submit-text');
+    const submitSpinner = submitBtn.querySelector('#profile-submit-spinner');
+    
+    // Tampilkan loading state
+    submitBtn.disabled = true;
+    submitText.textContent = 'Menyimpan...';
+    submitSpinner.classList.remove('hidden');
+    
+    try {
+        const formData = {
+            nama: document.getElementById('profile-nama').value.trim(),
+            nomor_hp: document.getElementById('profile-nomor-hp').value.trim(),
+            current_password: document.getElementById('current-password').value,
+            new_password: document.getElementById('new-password').value,
+            confirm_password: document.getElementById('confirm-password').value
+        };
+        
+        // Hanya kirim password jika ada input password baru
+        if (!formData.new_password) {
+            delete formData.current_password;
+            delete formData.new_password;
+            delete formData.confirm_password;
+        }
+        
+        const response = await apiFetch('guru/update_profile', {
+            method: 'POST',
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.success) {
+            // Update data user di local storage
+            if (response.data) {
+                localStorage.setItem('absensiName', response.data.nama || '');
+                userName = response.data.nama || userName;
+                updateUserInfo();
+                
+                // Reset form password
+                document.getElementById('current-password').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('confirm-password').value = '';
+            }
+            
+            showModal('Berhasil', 'Profil berhasil diperbarui', 'success');
+        } else {
+            throw new Error(response.message || 'Gagal memperbarui profil');
+        }
+    } catch (error) {
+        console.error('Update profile error:', error);
+        showModal('Error', error.message || 'Terjadi kesalahan saat memperbarui profil');
+    } finally {
+        // Reset button state
+        submitBtn.disabled = false;
+        submitText.textContent = 'Simpan Perubahan';
+        submitSpinner.classList.add('hidden');
+    }
+}
+
+// Fungsi untuk memuat data profil guru
+async function loadProfileData() {
+    try {
+        const response = await apiFetch('guru/profile');
+        if (response && response.success && response.data) {
+            document.getElementById('profile-nama').value = response.data.nama || '';
+            document.getElementById('profile-nomor-hp').value = response.data.nomor_hp || '';
+        } else {
+            throw new Error(response?.message || 'Gagal memuat data profil');
+        }
+    } catch (error) {
+        console.error('Gagal memuat data profil:', error);
+        showModal('Error', error.message || 'Gagal memuat data profil');
+    }
+}
+
+// Update fungsi showGuruTab untuk menangani tab profile
+const originalShowGuruTab = window.showGuruTab;
+window.showGuruTab = function(tab) {
+    originalShowGuruTab(tab);
+    
+    if (tab === 'profile') {
+        loadProfileData();
+    }
+};
+
+// Saat aplikasi dimuat, render app langsung jika ada token
         document.addEventListener('DOMContentLoaded', () => {
             // Jika ada token dan data user lengkap, langsung render dashboard
             if (userToken && userRole && userName && userId) {
