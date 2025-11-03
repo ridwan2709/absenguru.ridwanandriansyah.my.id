@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistem Absensi Guru (PHP Backend)</title>
+    <!-- Load Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Konfigurasi Tailwind untuk Font Inter dan Desain Responsive -->
@@ -29,6 +31,15 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+        #map {
+            width: 100%;
+            height: 400px; /* Atur tinggi peta */
+            border-radius: 0.5rem;
+            z-index: 1;
         }
         /* Custom scrollbar styling for better aesthetics */
         ::-webkit-scrollbar {
@@ -86,6 +97,8 @@
     </div>
 
 
+    <!-- Load Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script>
         // Konfigurasi API
         // PHP backend menggunakan api.php
@@ -97,12 +110,194 @@
         let userName = localStorage.getItem('absensiName') || null;
         let userId = localStorage.getItem('absensiId') || null;
         let currentView = userToken ? (userRole === 'admin' ? 'admin' : 'guru') : 'login';
+        
+        // Inisialisasi peta
+        let map;
+        let userMarker;
+        let schoolMarker;
+        
+        // Data sekolah
+        let sekolahData = {
+            latitude: -6.9486,  // Nilai default
+            longitude: 106.9810, // Nilai default
+            nama_sekolah: 'Sekolah  Contoh',
+            alamat: 'Jl. Contoh No. 123, SUKABUMI'
+        };
+        
+        // Fungsi untuk mengambil data sekolah dari API
+        async function loadSekolahData() {
+            try {
+                // Pastikan path API benar
+                const apiUrl = window.location.href.includes('localhost') 
+                    ? '/absen_guru/api.php?route=sekolah' 
+                    : 'api.php?route=sekolah';
+                
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    throw new Error('Gagal mengambil data sekolah');
+                }
+                const data = await response.json();
+                sekolahData = {
+                    latitude: parseFloat(data.latitude) || -6.9486,
+                    longitude: parseFloat(data.longitude) || 106.9810,
+                    nama_sekolah: data.nama_sekolah || 'Sekolah Contoh',
+                    alamat: data.alamat || 'Jl. Contoh No. 123, SUKABUMI'
+                };
+                console.log('Data sekolah berhasil dimuat:', sekolahData);
+            } catch (error) {
+                console.error('Error saat memuat data sekolah:', error);
+                // Gunakan nilai default jika terjadi error
+                sekolahData = {
+                    latitude: -6.9486,
+                    longitude: 106.9810,
+                    nama_sekolah: 'Sekolah Contoh',
+                    alamat: 'Gagal memuat data sekolah'
+                };
+            }
+        }
 
         // Geolocation State
         let currentLatitude = null;
         let currentLongitude = null;
 
         // Utility Functions
+
+        // Fungsi untuk mengubah derajat ke radian
+        function toRad(degrees) {
+            return degrees * Math.PI / 180;
+        }
+
+        // Fungsi untuk menghitung jarak antara dua koordinat (dalam km)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Radius bumi dalam km
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Fungsi untuk menginisialisasi peta
+        async function initMap() {
+            // Pastikan elemen peta ada
+            const mapElement = document.getElementById('map');
+            if (!mapElement) {
+                console.error('Elemen peta tidak ditemukan');
+                return;
+            }
+            
+            // Muat data sekolah terlebih dahulu
+            await loadSekolahData();
+
+            // Pastikan koordinat pengguna tersedia
+            if (currentLatitude === null || currentLongitude === null) {
+                console.error('Koordinat pengguna belum tersedia');
+                const geoStatusEl = document.getElementById('geo-status');
+                if (geoStatusEl) {
+                    geoStatusEl.textContent = 'Menunggu lokasi...';
+                }
+                return;
+            }
+            
+            try {
+                // Hapus peta yang sudah ada jika ada
+                if (map) {
+                    map.remove();
+                }
+                
+                // Inisialisasi peta dengan lokasi pengguna
+                map = L.map('map').setView([currentLatitude, currentLongitude], 15);
+                
+                // Tambahkan layer peta OpenStreetMap
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 19
+                }).addTo(map);
+                
+                // Hapus marker yang sudah ada jika ada
+                if (userMarker) {
+                    map.removeLayer(userMarker);
+                }
+                if (schoolMarker) {
+                    map.removeLayer(schoolMarker);
+                }
+                
+                // Tambahkan marker untuk lokasi pengguna
+                userMarker = L.marker([currentLatitude, currentLongitude], {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map).bindPopup('Lokasi Anda');
+                
+                // Tambahkan marker untuk lokasi sekolah
+                schoolMarker = L.marker([sekolahData.latitude, sekolahData.longitude], {
+                    title: sekolahData.nama_sekolah,
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map).bindPopup('Lokasi Sekolah');
+                
+                // Hitung jarak antara lokasi pengguna dan sekolah
+                const distance = calculateDistance(
+                    currentLatitude, 
+                    currentLongitude, 
+                    sekolahData.latitude, 
+                    sekolahData.longitude
+                ).toFixed(2);
+                
+                // Tambahkan garis antara lokasi pengguna dan sekolah
+                const line = L.polyline([
+                    [currentLatitude, currentLongitude],
+                    [sekolahData.latitude, sekolahData.longitude]
+                ], {
+                    color: 'blue',
+                    dashArray: '5, 5',
+                    weight: 2
+                }).addTo(map);
+                
+                // Tambahkan popup di tengah garis
+                const midPoint = line.getBounds().getCenter();
+                L.popup()
+                    .setLatLng(midPoint)
+                    .setContent(`
+                        <div class="text-center">
+                            <div class="font-bold">${sekolahData.nama_sekolah}</div>
+                            <div class="text-sm">${sekolahData.alamat}</div>
+                            <div class="mt-2 font-semibold">Jarak: ${distance} km</div>
+                        </div>
+                    `)
+                    .openOn(map);
+                    
+                console.log('Peta berhasil diinisialisasi');
+                
+                // Perbarui status di UI
+                const geoStatusEl = document.getElementById('geo-status');
+                if (geoStatusEl) {
+                    geoStatusEl.textContent = 'Peta berhasil dimuat';
+                }
+                
+            } catch (error) {
+                console.error('Gagal menginisialisasi peta:', error);
+                const geoStatusEl = document.getElementById('geo-status');
+                if (geoStatusEl) {
+                    geoStatusEl.textContent = 'Gagal memuat peta: ' + error.message;
+                    geoStatusEl.classList.add('text-danger');
+                }
+            }
+        }
 
         /** Menampilkan pesan di modal kustom */
         function showModal(title, body, type = 'alert', onConfirm = null, onCancel = null) {
@@ -215,6 +410,18 @@
                         currentLatitude = position.coords.latitude;
                         currentLongitude = position.coords.longitude;
                         console.log(`Lokasi berhasil didapatkan: ${currentLatitude}, ${currentLongitude}`);
+                        
+                        // Perbarui status di UI
+                        const geoStatusEl = document.getElementById('geo-status');
+                        if (geoStatusEl) {
+                            geoStatusEl.textContent = 'Status: Lokasi Berhasil Didapatkan';
+                            geoStatusEl.classList.remove('text-sm');
+                            geoStatusEl.classList.add('text-secondary', 'font-bold');
+                        }
+                        
+                        // Inisialisasi peta setelah mendapatkan lokasi
+                        initMap();
+                        
                         resolve(true);
                     },
                     (error) => {
@@ -319,6 +526,22 @@
                                 <h3 class="text-lg font-semibold text-gray-800">Status Geolocation</h3>
                                 <p id="geo-status" class="text-sm text-gray-600">Meminta izin lokasi...</p>
                                 <p id="geo-coords" class="text-xs text-gray-400 mt-1"></p>
+                                
+                                <!-- Map Container -->
+                                <div id="map" class="mt-4 h-64 w-full rounded-lg border border-gray-200"></div>
+                                <p class="text-xs text-gray-500 mt-1">Peta menunjukkan lokasi Anda saat ini</p>
+                                
+                                <!-- Legend -->
+                                <div class="flex items-center mt-3 space-x-4 text-xs text-gray-600">
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-blue-500 rounded-full mr-1"></div>
+                                        <span>Lokasi Anda</span>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-red-500 rounded-full mr-1"></div>
+                                        <span>Lokasi Sekolah</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -334,6 +557,9 @@
                 geoStatusEl.classList.remove('text-sm');
                 geoStatusEl.classList.add('text-secondary', 'font-bold');
                 geoCoordsEl.textContent = `Lat: ${currentLatitude}, Lon: ${currentLongitude}`;
+                
+                // Inisialisasi peta setelah mendapatkan lokasi
+                initMap();
             } catch (error) {
                 geoStatusEl.textContent = `Status: ${error.message}`;
                 geoStatusEl.classList.remove('text-sm');
@@ -1296,41 +1522,86 @@
             const button = event.target.closest('button');
             const id_jadwal = button.getAttribute('data-id');
             const statusContainer = document.getElementById(`status-${id_jadwal}`);
+            const originalButtonText = button.textContent;
 
-            if (!currentLatitude) {
+            // Periksa apakah lokasi tersedia
+            if (!currentLatitude || !currentLongitude) {
                 showModal('Error Lokasi', 'Lokasi GPS belum tersedia. Harap pastikan izin lokasi diberikan dan coba lagi.', 'alert', async () => {
-                     try {
+                    try {
                         await getGeolocation();
                         button.disabled = false;
-                        button.textContent = 'Absen Masuk';
+                        button.textContent = originalButtonText;
                         button.title = '';
                     } catch(err) {
                         console.error('Retry Geolocation Failed:', err.message);
+                        showModal('Error', 'Tidak dapat mengakses lokasi. Pastikan izin lokasi diaktifkan.', 'alert');
                     }
                 });
                 return;
             }
 
+            // Tampilkan indikator loading
             button.disabled = true;
-            button.textContent = 'Memproses...';
-
-            const data = {
-                latitude: currentLatitude,
-                longitude: currentLongitude
-            };
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Memproses...';
 
             try {
+                // Pastikan data sekolah sudah dimuat
+                await loadSekolahData();
+                
+                // Gunakan variabel global sekolahData yang sudah diupdate oleh loadSekolahData()
+                const jarak = calculateDistance(
+                    currentLatitude, 
+                    currentLongitude, 
+                    sekolahData.latitude, 
+                    sekolahData.longitude
+                );
+
+                // Tampilkan informasi jarak ke pengguna
+                const jarakDibulatkan = Math.round(jarak * 100) / 100; // Bulatkan ke 2 desimal
+                const radiusDibulatkan = 100; // Default radius dalam meter
+                
+                // Jika melebihi radius, tampilkan pesan error
+                if (jarak > radiusDibulatkan) {
+                    throw new Error(
+                        `Anda berada di luar radius absensi.\n` +
+                        `Jarak Anda: ${jarakDibulatkan} km dari sekolah\n` +
+                        `Radius maksimum: ${radiusDibulatkan} m`
+                    );
+                }
+
+                // Jika dalam radius, lanjutkan proses absensi
                 const result = await apiFetch(`guru/absensi/${id_jadwal}`, {
                     method: 'POST',
-                    body: JSON.stringify(data)
+                    body: JSON.stringify({
+                        latitude: currentLatitude,
+                        longitude: currentLongitude
+                    })
                 });
 
-                showModal('Absensi Berhasil', `${result.message} Jam masuk: ${result.jam_masuk}.`, 'alert', loadGuruSchedule);
+                showModal(
+                    'Absensi Berhasil', 
+                    `Absensi berhasil dicatat.\n` +
+                    `Jarak dari sekolah: ${jarakDibulatkan} km\n` +
+                    `Jam masuk: ${result.jam_masuk || new Date().toLocaleTimeString('id-ID')}`,
+                    'success', 
+                    loadGuruSchedule
+                );
 
             } catch (error) {
-                showModal('Gagal Absen', error.message, 'alert', loadGuruSchedule);
+                console.error('Absensi error:', error);
+                showModal(
+                    'Gagal Melakukan Absensi', 
+                    error.message || 'Terjadi kesalahan saat melakukan absensi. Silakan coba lagi.',
+                    'alert'
+                );
             } finally {
-                // Setelah selesai, load ulang jadwal untuk refresh status
+                // Reset tombol ke keadaan semula
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalButtonText;
+                }
+                // Refresh daftar jadwal
+                loadGuruSchedule();
             }
         }
 

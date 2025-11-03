@@ -128,6 +128,72 @@ function isAdmin($user) {
 //                  ENDPOINT HANDLERS
 // =========================================================
 
+// Pastikan koneksi database tersedia
+$db = getDBConnection();
+$route = $_GET['route'] ?? '';
+
+// Endpoint untuk mendapatkan data sekolah
+if ($route === 'sekolah' && $request_method === 'GET') {
+    try {
+        // Cek apakah tabel school_location ada
+        $tableExists = $db->query("SHOW TABLES LIKE 'school_location'")->rowCount() > 0;
+        
+        if (!$tableExists) {
+            // Jika tabel tidak ada, buat tabel
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS school_location (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    address TEXT,
+                    latitude FLOAT(10, 6) NOT NULL,
+                    longitude FLOAT(10, 6) NOT NULL,
+                    radius FLOAT(10, 2) DEFAULT 100.00,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                
+                -- Insert data default jika tabel kosong
+                INSERT INTO school_location (name, address, latitude, longitude, radius)
+                SELECT 'Sekolah Dasar Contoh', 'Jl. Contoh No. 123, Jakarta', -6.9486, 106.9810, 100.00
+                FROM DUAL
+                WHERE NOT EXISTS (SELECT 1 FROM school_location LIMIT 1);
+            ");
+        }
+        
+        $stmt = $db->query("SELECT * FROM school_location LIMIT 1");
+        $sekolah = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$sekolah) {
+            // Jika data sekolah belum ada, kembalikan nilai default
+            echo json_encode([
+                'latitude' => -6.9486,
+                'longitude' => 106.9810,
+                'nama_sekolah' => 'Sekolah',
+                'alamat' => 'Jl. Contoh No. 123, SUKABUMi',
+                'radius' => 100.00
+            ]);
+            exit();
+        }
+        
+        echo json_encode([
+            'latitude' => (float)$sekolah['latitude'],
+            'longitude' => (float)$sekolah['longitude'],
+            'nama_sekolah' => $sekolah['name'],
+            'alamat' => $sekolah['address'],
+            'radius' => (float)$sekolah['radius']
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'message' => 'Gagal mengambil data sekolah',
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+    exit();
+}
+
+
 $db = getDBConnection();
 $route = $_GET['route'] ?? '';
 
@@ -236,6 +302,39 @@ if (preg_match('/^guru\/absensi\/(\d+)$/', $route, $matches) && $request_method 
         http_response_code(400);
         echo json_encode(["message" => "Koordinat GPS wajib disertakan."]);
         exit();
+    }
+    
+    // Dapatkan data lokasi sekolah
+    $stmt_sekolah = $db->query("SELECT * FROM school_location LIMIT 1");
+    $sekolah = $stmt_sekolah->fetch(PDO::FETCH_ASSOC);
+    
+    if ($sekolah) {
+        // Hitung jarak dari lokasi guru ke sekolah (dalam km)
+        $lat1 = deg2rad($sekolah['latitude']);
+        $lon1 = deg2rad($sekolah['longitude']);
+        $lat2 = deg2rad($latitude);
+        $lon2 = deg2rad($longitude);
+        
+        // Rumus Haversine
+        $dlat = $lat2 - $lat1;
+        $dlon = $lon2 - $lon1;
+        $a = sin($dlat / 2) * sin($dlat / 2) + 
+             cos($lat1) * cos($lat2) * sin($dlon / 2) * sin($dlon / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        $distance = 6371 * $c; // Radius bumi dalam km
+        
+        // Jika jarak melebihi radius yang diizinkan
+        if ($distance > $sekolah['radius']) {
+            http_response_code(400);
+            echo json_encode([
+                "message" => "Anda berada di luar radius absensi yang diizinkan. ".
+                            "Jarak Anda: " . round($distance, 2) . " km dari sekolah. ".
+                            "Radius maksimum: " . $sekolah['radius'] . " km.",
+                "jarak" => round($distance, 2),
+                "radius_maksimal" => $sekolah['radius']
+            ]);
+            exit();
+        }
     }
 
     $today_date = date('Y-m-d');
