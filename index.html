@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem Absensi Guru (PHP Backend)</title>
+    <title>Sistem Absensi Guru</title>
     <!-- Load Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <!-- Load Tailwind CSS -->
@@ -72,8 +72,8 @@
 <body class="min-h-screen flex flex-col">
 
     <!-- Header / Navbar -->
-    <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10">
-        <h1 class="text-2xl font-bold text-primary">Absensi Guru (PHP)</h1>
+    <header id="main-header" class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-10 hidden">
+        <h1 class="text-2xl font-bold text-primary">Absensi Guru</h1>
         <div id="user-info" class="flex items-center space-x-4">
             <!-- Nama Pengguna dan Tombol Logout akan muncul di sini setelah login -->
         </div>
@@ -463,11 +463,16 @@
         // ===============================================
         
         function renderLogin() {
+            // Sembunyikan header di halaman login
+            const header = document.getElementById('main-header');
+            if (header) header.classList.add('hidden');
+            
             const container = document.getElementById('app-container');
             container.classList.add('items-center'); // Pusatkan konten login
             container.innerHTML = `
                 <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl transition duration-300">
                     <h2 class="text-3xl font-extrabold text-gray-900 mb-6 text-center">Login Aplikasi Absensi</h2>
+                    <img 
                     <form id="login-form" class="space-y-4">
                         <div>
                             <label for="id_guru" class="block text-sm font-medium text-gray-700">ID Guru / Admin</label>
@@ -491,7 +496,7 @@
                     </button>
                 </div>
             `;
-
+            
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('clear-storage-btn').addEventListener('click', () => {
                 localStorage.clear();
@@ -501,6 +506,10 @@
         }
 
         async function renderGuruDashboard() {
+            // Tampilkan header untuk dashboard
+            const header = document.getElementById('main-header');
+            if (header) header.classList.remove('hidden');
+            
             const container = document.getElementById('app-container');
             container.classList.remove('items-center');
             container.innerHTML = `
@@ -510,21 +519,11 @@
                         <p class="text-blue-100 mt-2">Selamat datang, ${userName}. Kelola jadwal mengajar Anda dengan mudah.</p>
                     </div>
 
-                    <!-- Tab Navigation -->
-                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-                        <div class="flex border-b border-gray-200">
-                            <button onclick="showGuruTab('today')" id="tab-today" class="flex-1 px-6 py-4 text-sm font-semibold text-primary border-b-2 border-primary bg-blue-50 transition duration-150">
-                                📅 Jadwal Hari Ini
-                            </button>
-                            <button onclick="showGuruTab('all')" id="tab-all" class="flex-1 px-6 py-4 text-sm font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition duration-150">
-                                📚 Semua Jadwal
-                            </button>
-                            <button onclick="showGuruTab('profile')" id="tab-profile" class="flex-1 px-6 py-4 text-sm font-semibold text-gray-600 hover:text-primary hover:bg-gray-50 transition duration-150">
-                                👤 Profil Saya
-                            </button>
-                        </div>
 
-                        <!-- Tab Content: Jadwal Hari Ini -->
+                    <!-- Content Sections -->
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+
+                        <!-- Today's Schedule -->
                         <div id="content-today" class="p-6">
                             <h3 id="today-schedule-title" class="text-xl font-semibold mb-4 text-gray-800">
                                 Jadwal Hari Ini: <span id="current-day" class="font-normal text-primary">Loading...</span>
@@ -534,7 +533,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab Content: Semua Jadwal -->
+                        <!-- All Schedules -->
                         <div id="content-all" class="p-6 hidden">
                             <h3 class="text-xl font-semibold mb-4 text-gray-800">Semua Jadwal Mengajar</h3>
                             <div id="all-schedule-list">
@@ -542,7 +541,7 @@
                             </div>
                         </div>
 
-                        <!-- Tab Content: Profil -->
+                        <!-- Profile -->
                         <div id="content-profile" class="p-6 hidden">
                             <h3 class="text-xl font-semibold mb-6 text-gray-800">Profil Saya</h3>
                             <form onsubmit="updateProfile(event)" class="max-w-lg mx-auto">
@@ -646,47 +645,99 @@
                 geoStatusEl.classList.add('text-danger', 'font-bold');
             }
 
+            // Load initial content
             loadGuruSchedule();
             loadAllGuruSchedule();
+            
+            // Add bottom navigation bar
+            const bottomNav = document.createElement('div');
+            bottomNav.className = 'fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t border-gray-200 z-50';
+            bottomNav.innerHTML = `
+                <div class="flex justify-around items-center p-2">
+                    <button onclick="showGuruTab('today')" data-tab="today" class="menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-primary relative">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span class="text-xs mt-1">Jadwal Hari Ini</span>
+                    </button>
+                    <button onclick="showGuruTab('all')" data-tab="all" class="menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <span class="text-xs mt-1">Semua Jadwal</span>
+                    </button>
+                    <button onclick="showGuruTab('profile')" data-tab="profile" class="menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        <span class="text-xs mt-1">Profil</span>
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(bottomNav);
+            
+            // Add padding to main content to prevent bottom nav from covering content
+            const mainContent = document.querySelector('main');
+            mainContent.style.paddingBottom = '70px';
         }
 
         // Fungsi untuk switch tab
         function showGuruTab(tab) {
-            const tabToday = document.getElementById('tab-today');
-            const tabAll = document.getElementById('tab-all');
-            const tabProfile = document.getElementById('tab-profile');
-            const contentToday = document.getElementById('content-today');
-            const contentAll = document.getElementById('content-all');
-            const contentProfile = document.getElementById('content-profile');
-
-            // Reset all tabs
-            [tabToday, tabAll, tabProfile].forEach(t => {
-                t.classList.remove('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                t.classList.add('text-gray-600');
+            // Hide all content sections
+            document.getElementById('content-today').classList.add('hidden');
+            document.getElementById('content-all').classList.add('hidden');
+            document.getElementById('content-profile').classList.add('hidden');
+            
+            // Remove active state from all menu items
+            const menuItems = document.querySelectorAll('.menu-item');
+            menuItems.forEach(item => {
+                item.classList.remove('text-primary', 'border-primary');
+                item.classList.add('text-gray-500', 'hover:text-primary');
+                const icon = item.querySelector('svg');
+                if (icon) {
+                    icon.classList.remove('text-primary');
+                    icon.classList.add('text-gray-500');
+                }
             });
-
-            // Hide all contents
-            [contentToday, contentAll, contentProfile].forEach(c => {
-                c?.classList.add('hidden');
-            });
-
-            // Activate selected tab and show corresponding content
-            switch(tab) {
-                case 'today':
-                    tabToday.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                    contentToday.classList.remove('hidden');
-                    break;
-                case 'all':
-                    tabAll.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                    contentAll.classList.remove('hidden');
-                    break;
-                case 'profile':
-                    tabProfile.classList.add('text-primary', 'border-b-2', 'border-primary', 'bg-blue-50');
-                    contentProfile.classList.remove('hidden');
-                    // Load profile data when profile tab is clicked
-                    loadProfileData();
-                    break;
+            
+            // Show selected content and activate menu item
+            if (tab === 'today') {
+                document.getElementById('content-today').classList.remove('hidden');
+                const menuItem = document.querySelector('[data-tab="today"]');
+                menuItem.classList.remove('text-gray-500', 'hover:text-primary');
+                menuItem.classList.add('text-primary');
+                const icon = menuItem.querySelector('svg');
+                if (icon) {
+                    icon.classList.remove('text-gray-500');
+                    icon.classList.add('text-primary');
+                }
+                loadGuruSchedule();
+            } else if (tab === 'all') {
+                document.getElementById('content-all').classList.remove('hidden');
+                const menuItem = document.querySelector('[data-tab="all"]');
+                menuItem.classList.remove('text-gray-500', 'hover:text-primary');
+                menuItem.classList.add('text-primary');
+                const icon = menuItem.querySelector('svg');
+                if (icon) {
+                    icon.classList.remove('text-gray-500');
+                    icon.classList.add('text-primary');
+                }
+                loadAllGuruSchedule();
+            } else if (tab === 'profile') {
+                document.getElementById('content-profile').classList.remove('hidden');
+                const menuItem = document.querySelector('[data-tab="profile"]');
+                menuItem.classList.remove('text-gray-500', 'hover:text-primary');
+                menuItem.classList.add('text-primary');
+                const icon = menuItem.querySelector('svg');
+                if (icon) {
+                    icon.classList.remove('text-gray-500');
+                    icon.classList.add('text-primary');
+                }
+                loadProfileData();
             }
+            
+            // Scroll to top of the content
+            window.scrollTo(0, 0);
         }
 
         // Load semua jadwal guru
@@ -782,7 +833,7 @@
                                 <!-- Mapel -->
                                 <div class="flex items-center space-x-2">
                                     <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                     </svg>
                                     <span class="text-sm text-gray-700 font-medium">${item.mapel}</span>
                                 </div>
@@ -833,8 +884,8 @@
                             Absen Masuk
                         </button>` :
                         `<span class="${statusClass} font-semibold flex items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0001.414 0l4-4z" clip-rule="evenodd" />
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
                             </svg>
                             ${session.status} (${timeEntry})
                         </span>`;
@@ -870,6 +921,10 @@
         }
 
         async function renderAdminDashboard() {
+            // Tampilkan header untuk dashboard admin
+            const header = document.getElementById('main-header');
+            if (header) header.classList.remove('hidden');
+            
             const container = document.getElementById('app-container');
             container.classList.remove('items-center');
             container.innerHTML = `
@@ -903,20 +958,65 @@
                         </div>
                     </div>
 
-                    <!-- Tabs Navigation -->
-                    <div class="flex border-b border-gray-200">
-                        <button id="tab-guru" onclick="switchAdminTab('guru')" class="tab-btn py-2 px-6 text-sm font-medium text-white bg-secondary rounded-t-lg transition duration-150">Manajemen Guru</button>
-                        <button id="tab-jadwal" onclick="switchAdminTab('jadwal')" class="tab-btn py-2 px-6 text-sm font-medium text-gray-500 hover:text-secondary transition duration-150">Manajemen Jadwal</button>
-                        <button id="tab-laporan" onclick="switchAdminTab('laporan')" class="tab-btn py-2 px-6 text-sm font-medium text-gray-500 hover:text-secondary transition duration-150">Laporan Absensi</button>
-                        <button id="tab-maps" onclick="switchAdminTab('maps')" class="tab-btn py-2 px-6 text-sm font-medium text-gray-500 hover:text-secondary transition duration-150">Pengaturan Peta</button>
-                    </div>
+                    <!-- Removed tab navigation in favor of bottom navigation -->
 
                     <!-- Tabs Content -->
-                    <div id="admin-content" class="bg-white p-6 rounded-xl shadow-lg min-h-[500px]">
+                    <div id="admin-content" class="bg-white p-6 rounded-xl shadow-lg min-h-[500px] mb-16">
                         <!-- Content will be loaded here -->
                     </div>
                 </div>
             `;
+            // Add bottom navigation bar with active indicator
+            const bottomNav = document.createElement('div');
+            bottomNav.className = 'fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t border-gray-200 z-[9999]';
+            bottomNav.innerHTML = `
+                <div class="flex justify-around items-center pt-2 pb-3">
+                    <button onclick="switchAdminTab('guru')" id="nav-guru" class="flex flex-col items-center justify-center w-full py-1 px-1 text-secondary relative group">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            <span class="text-xs mt-0.5 font-semibold">Guru</span>
+                            <div class="active-indicator w-1.5 h-1.5 bg-secondary rounded-full mx-auto mt-1"></div>
+                        </div>
+                    </button>
+                    <button onclick="switchAdminTab('jadwal')" id="nav-jadwal" class="flex flex-col items-center justify-center w-full py-1 px-1 text-gray-500 hover:text-secondary relative group">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            <span class="text-xs mt-0.5">Jadwal</span>
+                            <div class="active-indicator w-1.5 h-1.5 bg-secondary rounded-full mx-auto mt-1 hidden"></div>
+                        </div>
+                    </button>
+                    <button onclick="switchAdminTab('laporan')" id="nav-laporan" class="flex flex-col items-center justify-center w-full py-1 px-1 text-gray-500 hover:text-secondary relative group">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span class="text-xs mt-0.5">Laporan</span>
+                            <div class="active-indicator w-1.5 h-1.5 bg-secondary rounded-full mx-auto mt-1 hidden"></div>
+                        </div>
+                    </button>
+                    <button onclick="switchAdminTab('maps')" id="nav-maps" class="flex flex-col items-center justify-center w-full py-1 px-1 text-gray-500 hover:text-secondary relative group">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span class="text-xs mt-0.5">Peta</span>
+                            <div class="active-indicator w-1.5 h-1.5 bg-secondary rounded-full mx-auto mt-1 hidden"></div>
+                        </div>
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(bottomNav);
+            
+            // Add padding to main content to prevent bottom nav from covering content
+            const mainContent = document.querySelector('main');
+            mainContent.style.paddingBottom = '70px';
+            
+            // Load initial tab
             switchAdminTab('guru');
         }
 
@@ -928,17 +1028,44 @@
                 'maps': renderMapsSettings
             };
 
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('bg-secondary', 'text-white');
-                btn.classList.add('text-gray-500', 'hover:text-secondary');
+            // Remove active state from all nav items
+            const navItems = ['guru', 'jadwal', 'laporan', 'maps'];
+            navItems.forEach(item => {
+                const navEl = document.getElementById(`nav-${item}`);
+                if (navEl) {
+                    // Remove active styles
+                    navEl.classList.remove('text-secondary', 'bg-gray-50', 'font-semibold');
+                    navEl.classList.add('text-gray-500', 'hover:text-secondary');
+                    
+                    // Remove active indicator dot
+                    const indicator = navEl.querySelector('.active-indicator');
+                    if (indicator) {
+                        indicator.classList.add('hidden');
+                    }
+                }
             });
 
-            document.getElementById(`tab-${tabName}`).classList.add('bg-secondary', 'text-white');
-            document.getElementById(`tab-${tabName}`).classList.remove('text-gray-500', 'hover:text-secondary');
+            // Activate current tab
+            const currentNavEl = document.getElementById(`nav-${tabName}`);
+            if (currentNavEl) {
+                // Add active styles
+                currentNavEl.classList.remove('text-gray-500', 'hover:text-secondary');
+                currentNavEl.classList.add('text-secondary', 'font-semibold');
+                
+                // Show active indicator dot
+                const indicator = currentNavEl.querySelector('.active-indicator');
+                if (indicator) {
+                    indicator.classList.remove('hidden');
+                }
+            }
 
+            // Load the tab content
             if (tabs[tabName]) {
                 tabs[tabName]();
             }
+            
+            // Scroll to top of the content
+            window.scrollTo(0, 0);
         }
 
         async function renderManajemenGuru() {
@@ -2130,6 +2257,7 @@
             localStorage.removeItem('absensiId');
             currentView = 'login';
             renderApp();
+            location.reload();
         }
 
         function updateUserInfo() {
