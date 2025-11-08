@@ -13,7 +13,12 @@ async function renderAdminDashboard() {
             <div class="bg-gradient-to-r from-purple-500 to-indigo-600 p-6 rounded-xl shadow-lg text-white">
                 <h2 class="text-3xl font-bold">Dashboard Admin</h2>
                 <p class="text-purple-100 mt-2">Selamat datang, ${window.userName}. Kelola sistem absensi dengan mudah.</p>
-            </div>
+                </div>
+                <button onclick="kirimJadwalKeGrup()" class="px-6 py-3 bg-white text-green-600 font-semibold rounded-lg hover:bg-gray-100 transition duration-150 shadow-md flex items-center gap-2">
+                   <span id="kirim-jadwal-text">📤 Kirim Jadwal ke Group</span>
+                   <span id="kirim-jadwal-spinner" class="hidden">⏳</span>
+               </button>
+            
 
             <!-- Content Area -->
             <div class="bg-white rounded-xl shadow-md overflow-hidden">
