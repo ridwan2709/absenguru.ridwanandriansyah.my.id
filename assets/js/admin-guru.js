@@ -7,6 +7,12 @@ async function renderManajemenGuru() {
         <button onclick="showAddGuruForm()" class="mb-4 px-4 py-2 bg-secondary text-white rounded-lg hover:bg-emerald-600 transition duration-150 shadow-md">
             + Tambah Guru Baru
         </button>
+        <button onclick="exportGuruToPDF()" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition duration-150 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Ekspor PDF
+        </button>
         <div id="guru-form-container" class="mb-6 hidden"></div>
         <div id="guru-list-container" class="scrollable-content">
             <p class="text-center text-gray-500 mt-10">Memuat data guru...</p>
@@ -64,6 +70,119 @@ async function loadGuruList() {
         container.innerHTML = `<p class="text-center text-danger mt-10">Gagal memuat data guru: ${error.message}</p>`;
     }
 }
+
+async function exportGuruToPDF() {
+            try {
+                // Tampilkan loading
+                showNotification('Menyiapkan dokumen PDF...', 'info');
+                
+                // Ambil data guru dari API
+                const guruList = await apiFetch('admin/guru');
+                
+                if (!Array.isArray(guruList) || guruList.length === 0) {
+                    showNotification('Tidak ada data guru untuk diekspor', 'warning');
+                    return;
+                }
+
+                // Inisialisasi dokumen PDF (potrait mode)
+                const doc = new jspdf.jsPDF('p', 'mm', 'a4');
+                const pageWidth = doc.internal.pageSize.getWidth();
+                
+                // Judul dan informasi
+                doc.setFontSize(16);
+                doc.setFont('helvetica', 'bold');
+                doc.text('SMK MIHADUNAL ULA', pageWidth / 2, 15, { align: 'center' });
+                
+                doc.setFontSize(12);
+                doc.setFont('helvetica', 'normal');
+                doc.text('DAFTAR GURU DAN STAF', pageWidth / 2, 23, { align: 'center' });
+                
+                // Tanggal cetak
+                const options = { day: '2-digit', month: 'long', year: 'numeric' };
+                const today = new Date().toLocaleDateString('id-ID', options);
+                doc.setFontSize(9);
+                doc.text(`Dicetak pada: ${today}`, 14, 30);
+                
+                // Data untuk tabel
+                const tableColumn = ['No', 'ID Guru', 'Nama', 'Jabatan', 'Password Default'];
+                const tableRows = [];
+                
+                // Isi data (hanya guru, bukan admin)
+                let rowNumber = 1;
+                guruList.forEach((guru) => {
+                    if (guru.role !== 'admin') {
+                        const guruRow = [
+                            rowNumber++,
+                            guru.id_guru || '-',
+                            guru.nama || '-',
+                            'Guru',
+                            'guru123'  // Password default
+                        ];
+                        tableRows.push(guruRow);
+                    }
+                });
+                
+                // Styling tabel
+                doc.autoTable({
+                    head: [tableColumn],
+                    body: tableRows,
+                    startY: 40,
+                    headStyles: {
+                        fillColor: [79, 70, 229], // Warna biru yang sesuai dengan tema
+                        textColor: 255,
+                        fontStyle: 'bold',
+                        fontSize: 10
+                    },
+                    alternateRowStyles: {
+                        fillColor: [249, 250, 251]
+                    },
+                    styles: {
+                        fontSize: 9,
+                        cellPadding: 3,
+                        overflow: 'linebreak',
+                        lineWidth: 0.1,
+                        lineColor: [209, 213, 219]
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 15, halign: 'center' },  // No
+                        1: { cellWidth: 30, halign: 'center' },  // ID Guru
+                        2: { cellWidth: 80 },                    // Nama
+                        3: { cellWidth: 25, halign: 'center' },  // Jabatan
+                        4: { cellWidth: 40, halign: 'center' }   // Password Default
+                    },
+                    headStyles: {
+                        fillColor: [79, 70, 229],
+                        textColor: 255,
+                        fontStyle: 'bold',
+                        fontSize: 10
+                    },
+                    margin: { top: 40 }
+                });
+                
+                // Footer dengan nomor halaman
+                const pageCount = doc.internal.getNumberOfPages();
+                for (let i = 1; i <= pageCount; i++) {
+                    doc.setPage(i);
+                    doc.setFontSize(9);
+                    doc.text(
+                        `Halaman ${i} dari ${pageCount}`,
+                        pageWidth - 20,
+                        doc.internal.pageSize.getHeight() - 10,
+                        { align: 'right' }
+                    );
+                }
+                
+                // Simpan PDF
+                const fileName = `Daftar_Guru_${new Date().toISOString().split('T')[0]}.pdf`;
+                doc.save(fileName);
+                
+                showNotification('Berhasil mengekspor data guru ke PDF', 'success');
+                
+            } catch (error) {
+                console.error('Error exporting to PDF:', error);
+                showNotification('Gagal mengekspor data guru ke PDF', 'error');
+            }
+        }
 
 function showAddGuruForm() {
     const container = document.getElementById('guru-form-container');
