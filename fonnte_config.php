@@ -20,7 +20,7 @@
 
 define('FONNTE_API_URL', 'https://api.fonnte.com/send');
 define('FONNTE_TOKEN', 'rGPXg5Fj2MKkWwX7cmuf'); // Token dari dashboard Fonnte
-define('FONNTE_GROUP_ID', '120363420233041426@g.us'); // ID Grup WhatsApp
+define('FONNTE_GROUP_ID', '120363404095879088@g.us'); // ID Grup WhatsApp
 
 // ============================================
 // FUNGSI UTAMA
