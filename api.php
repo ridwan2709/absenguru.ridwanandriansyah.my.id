@@ -917,6 +917,7 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
             'success' => true,
             'message' => 'Izin berhasil diajukan dan menunggu persetujuan admin.',
             'id_izin' => $id_izin_baru,
+            'media_url' => $mediaUrl,
             'wa_result' => $waResult
         ]);
     } catch (PDOException $e) {

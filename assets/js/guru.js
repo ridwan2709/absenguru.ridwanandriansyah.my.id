@@ -221,7 +221,7 @@ function showGuruTab(tab) {
         if (typeof loadGuruSchedule === 'function') {
             window.guruTodayInterval = setInterval(() => {
                 loadGuruSchedule();
-            }, 5000);
+            }, 15000);
         }
     } else if (tab === 'all') {
         document.getElementById('content-all').classList.remove('hidden');
@@ -260,7 +260,7 @@ function showGuruTab(tab) {
             if (typeof loadGuruIzinList === 'function') {
                 window.guruIzinInterval = setInterval(() => {
                     loadGuruIzinList();
-                }, 5000);
+                }, 15000);
             }
         }
     }
