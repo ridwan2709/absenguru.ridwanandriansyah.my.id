@@ -893,22 +893,11 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
             if (!empty($keterangan)) {
                 $message .= "*Keterangan:* {$keterangan}\n";
             }
+
             $message .= "\n_Status: Pending persetujuan admin_";
 
-            $mediaUrl = null;
-            if (!empty($foto_path)) {
-                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-                $host = $_SERVER['HTTP_HOST'] ?? '';
-                $basePath = rtrim(str_replace('api.php', '', $_SERVER['SCRIPT_NAME'] ?? ''), '/');
-                $relativePath = ltrim($foto_path, '/');
-
-                // Hanya gunakan mediaUrl jika host bukan localhost/127.0.0.1 dan tidak kosong
-                if (!empty($host) && $host !== 'localhost' && $host !== '127.0.0.1') {
-                    $mediaUrl = rtrim($scheme . $host . $basePath, '/') . '/' . $relativePath;
-                }
-            }
-
-            $waResult = sendWhatsAppNotification($message, FONNTE_GROUP_ID, $mediaUrl);
+            // Kirim notifikasi WA tanpa foto (teks saja)
+            $waResult = sendWhatsAppNotification($message, FONNTE_GROUP_ID);
         } catch (Exception $e) {
             error_log('Gagal mengirim notifikasi WA izin: ' . $e->getMessage());
         }
@@ -917,7 +906,6 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
             'success' => true,
             'message' => 'Izin berhasil diajukan dan menunggu persetujuan admin.',
             'id_izin' => $id_izin_baru,
-            'media_url' => $mediaUrl,
             'wa_result' => $waResult
         ]);
     } catch (PDOException $e) {
