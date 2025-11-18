@@ -85,6 +85,12 @@ async function renderGuruDashboard() {
                         </div>
                     </form>
                 </div>
+                <div id="content-izin" class="p-6 hidden">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-800">Izin Saya</h3>
+                    <div id="izin-content">
+                        <p class="text-center text-gray-500">Memuat data izin...</p>
+                    </div>
+                </div>
             </div>
 
             <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-green-500">
@@ -154,6 +160,12 @@ async function renderGuruDashboard() {
                 </svg>
                 <span class="text-xs mt-1">Semua Jadwal</span>
             </button>
+            <button onclick="showGuruTab('izin')" data-tab="izin" class="menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="text-xs mt-1">Izin</span>
+            </button>
             <button onclick="showGuruTab('profile')" data-tab="profile" class="menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
@@ -173,6 +185,16 @@ function showGuruTab(tab) {
     document.getElementById('content-today').classList.add('hidden');
     document.getElementById('content-all').classList.add('hidden');
     document.getElementById('content-profile').classList.add('hidden');
+    const izinEl = document.getElementById('content-izin');
+    if (izinEl) izinEl.classList.add('hidden');
+    if (window.guruIzinInterval) {
+        clearInterval(window.guruIzinInterval);
+        window.guruIzinInterval = null;
+    }
+    if (window.guruTodayInterval) {
+        clearInterval(window.guruTodayInterval);
+        window.guruTodayInterval = null;
+    }
     
     const menuItems = document.querySelectorAll('.menu-item');
     menuItems.forEach(item => {
@@ -196,6 +218,11 @@ function showGuruTab(tab) {
             icon.classList.add('text-primary');
         }
         loadGuruSchedule();
+        if (typeof loadGuruSchedule === 'function') {
+            window.guruTodayInterval = setInterval(() => {
+                loadGuruSchedule();
+            }, 15000);
+        }
     } else if (tab === 'all') {
         document.getElementById('content-all').classList.remove('hidden');
         const menuItem = document.querySelector('[data-tab="all"]');
@@ -218,9 +245,25 @@ function showGuruTab(tab) {
             icon.classList.add('text-primary');
         }
         loadProfileData();
+    } else if (tab === 'izin') {
+        document.getElementById('content-izin').classList.remove('hidden');
+        const menuItem = document.querySelector('[data-tab="izin"]');
+        menuItem.classList.remove('text-gray-500', 'hover:text-primary');
+        menuItem.classList.add('text-primary');
+        const icon = menuItem.querySelector('svg');
+        if (icon) {
+            icon.classList.remove('text-gray-500');
+            icon.classList.add('text-primary');
+        }
+        if (typeof renderGuruIzin === 'function') {
+            renderGuruIzin();
+            if (typeof loadGuruIzinList === 'function') {
+                window.guruIzinInterval = setInterval(() => {
+                    loadGuruIzinList();
+                }, 15000);
+            }
+        }
     }
-    
-    window.scrollTo(0, 0);
 }
 
 // Lihat file guru-schedule.js untuk fungsi loadGuruSchedule, loadAllGuruSchedule, handleAbsensi

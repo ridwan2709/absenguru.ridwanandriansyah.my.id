@@ -2,6 +2,9 @@
 koneksi.php
 # fonnte_config.php
 
+#uploaded files
+uploads/
+
 # Vendor dependencies
 vendor/
 
