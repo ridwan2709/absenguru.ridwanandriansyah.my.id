@@ -42,11 +42,12 @@ CREATE TABLE absensi (
 );
 
 -- 5. Tabel Izin Guru
-CREATE TABLE izin_guru (
+CREATE TABLE IF NOT EXISTS izin_guru (
     id_izin INT AUTO_INCREMENT PRIMARY KEY,
     id_guru VARCHAR(50) NOT NULL,
     mode ENUM('per_jadwal', 'per_hari') NOT NULL,
     id_jadwal INT NULL,
+    id_jadwal_list TEXT NULL,
     tanggal_mulai DATE NOT NULL,
     tanggal_selesai DATE NOT NULL,
     jenis_izin ENUM('Sakit', 'Dinas', 'Lainnya') NOT NULL,

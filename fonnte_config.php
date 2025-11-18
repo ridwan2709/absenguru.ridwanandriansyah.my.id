@@ -224,6 +224,9 @@ function sendJadwalHariIniKeGrup($db) {
                 } elseif ($jadwal['status_absensi'] === 'Terlambat') {
                     $status_icon = ' ⚠️';
                     $total_hadir++;
+                } elseif ($jadwal['status_absensi'] === 'Izin') {
+                    // Tanda khusus untuk sesi yang diizinkan
+                    $status_icon = ' 🛄';
                 }
             }
             

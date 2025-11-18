@@ -386,7 +386,7 @@ function showIzinForm(initialData = {}) {
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Foto Bukti (opsional)</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Foto Bukti <span class="text-red-500">*</span></label>
                     <input type="file" id="izin-foto" accept="image/*" class="w-full text-sm text-gray-700">
                 </div>
 
@@ -476,9 +476,12 @@ function showIzinForm(initialData = {}) {
 
         let foto_path = null;
         try {
-            if (fotoInput.files && fotoInput.files[0]) {
-                foto_path = await uploadIzinFoto(fotoInput.files[0]);
+            // Foto wajib diunggah
+            if (!fotoInput.files || !fotoInput.files[0]) {
+                throw new Error('Foto bukti wajib diunggah.');
             }
+
+            foto_path = await uploadIzinFoto(fotoInput.files[0]);
 
             let payload = {
                 mode,
@@ -498,18 +501,17 @@ function showIzinForm(initialData = {}) {
                     throw new Error('Silakan pilih minimal satu jadwal untuk diajukan izin.');
                 }
 
-                for (const id_jadwal of checked) {
-                    const perJadwalPayload = {
-                        ...payload,
-                        mode: 'per_jadwal',
-                        id_jadwal,
-                        tanggal
-                    };
-                    await apiFetch('guru/izin', {
-                        method: 'POST',
-                        body: JSON.stringify(perJadwalPayload)
-                    });
-                }
+                const perJadwalPayload = {
+                    ...payload,
+                    mode: 'per_jadwal',
+                    tanggal,
+                    id_jadwal_list: checked
+                };
+
+                await apiFetch('guru/izin', {
+                    method: 'POST',
+                    body: JSON.stringify(perJadwalPayload)
+                });
             } else {
                 const tanggal_mulai = document.getElementById('izin-tanggal-mulai').value;
                 const tanggal_selesai = document.getElementById('izin-tanggal-selesai').value;
@@ -591,6 +593,7 @@ async function loadGuruIzinList() {
                         <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusColor}">${item.status}</span>
                     </div>
                     <p class="text-sm text-gray-700 mb-1"><span class="font-semibold">Periode:</span> ${periode}</p>
+                    ${item.jadwal_text ? `<p class="text-sm text-gray-700 mb-1"><span class="font-semibold">Jadwal:</span> ${item.jadwal_text.replace(/\n/g, '<br>')}</p>` : ''}
                     ${item.keterangan ? `<p class="text-sm text-gray-700 mb-1"><span class="font-semibold">Keterangan:</span> ${item.keterangan.replace(/\n/g, '<br>')}</p>` : ''}
                     ${item.foto_path ? `<p class="text-sm"><a href="${item.foto_path}" target="_blank" class="text-primary underline">Lihat Foto Bukti</a></p>` : ''}
                 </div>

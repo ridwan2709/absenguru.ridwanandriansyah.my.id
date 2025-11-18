@@ -204,6 +204,7 @@ function applyIzinToAbsensi($db, $izin)
     $id_guru = $izin['id_guru'];
     $mode = $izin['mode'];
     $id_jadwal_izin = $izin['id_jadwal'];
+    $id_jadwal_list_json = $izin['id_jadwal_list'] ?? null;
     $tanggal_mulai = new DateTime($izin['tanggal_mulai']);
     $tanggal_selesai = new DateTime($izin['tanggal_selesai']);
 
@@ -222,8 +223,16 @@ function applyIzinToAbsensi($db, $izin)
     foreach ($periode as $tanggal) {
         $tanggal_str = $tanggal->format('Y-m-d');
 
-        if ($mode === 'per_jadwal' && $id_jadwal_izin) {
-            $id_jadwal_list = [$id_jadwal_izin];
+        if ($mode === 'per_jadwal') {
+            if (!empty($id_jadwal_list_json)) {
+                $decoded = json_decode($id_jadwal_list_json, true);
+                if (is_array($decoded) && count($decoded) > 0) {
+                    $id_jadwal_list = array_values(array_unique(array_map('intval', $decoded)));
+                }
+            }
+            if (empty($id_jadwal_list) && $id_jadwal_izin) {
+                $id_jadwal_list = [$id_jadwal_izin];
+            }
         } else {
             $hari_en = $tanggal->format('l');
             $hari_id = $hari_map[$hari_en] ?? $hari_en;
@@ -821,17 +830,39 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
         exit();
     }
 
+    // Foto bukti wajib diisi
+    if (empty($foto_path)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Foto bukti izin wajib diunggah."]);
+        exit();
+    }
+
     $id_jadwal = null;
+    $id_jadwal_list = [];
     $tanggal_mulai = null;
     $tanggal_selesai = null;
 
     if ($mode === 'per_jadwal') {
-        $id_jadwal = $input_data['id_jadwal'] ?? null;
+        // Bisa menerima satu id_jadwal atau beberapa melalui id_jadwal_list
         $tanggal = $input_data['tanggal'] ?? null;
+        $id_jadwal_input = $input_data['id_jadwal'] ?? null;
+        $id_jadwal_list_input = $input_data['id_jadwal_list'] ?? null;
 
-        if (empty($id_jadwal) || empty($tanggal)) {
+        if (empty($tanggal)) {
             http_response_code(400);
-            echo json_encode(["message" => "id_jadwal dan tanggal wajib diisi untuk mode per_jadwal."]);
+            echo json_encode(["message" => "Tanggal wajib diisi untuk mode per_jadwal."]);
+            exit();
+        }
+
+        if (is_array($id_jadwal_list_input) && count($id_jadwal_list_input) > 0) {
+            $id_jadwal_list = array_values(array_unique(array_map('intval', $id_jadwal_list_input)));
+            $id_jadwal = $id_jadwal_list[0]; // simpan salah satu untuk kompatibilitas
+        } elseif (!empty($id_jadwal_input)) {
+            $id_jadwal = (int)$id_jadwal_input;
+            $id_jadwal_list = [$id_jadwal];
+        } else {
+            http_response_code(400);
+            echo json_encode(["message" => "Minimal satu jadwal harus dipilih untuk mode per_jadwal."]);
             exit();
         }
 
@@ -849,11 +880,12 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
     }
 
     try {
-        $stmt = $db->prepare("INSERT INTO izin_guru (id_guru, mode, id_jadwal, tanggal_mulai, tanggal_selesai, jenis_izin, keterangan, foto_path, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
+        $stmt = $db->prepare("INSERT INTO izin_guru (id_guru, mode, id_jadwal, id_jadwal_list, tanggal_mulai, tanggal_selesai, jenis_izin, keterangan, foto_path, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
         $stmt->execute([
             $id_guru,
             $mode,
             $id_jadwal,
+            $id_jadwal_list ? json_encode($id_jadwal_list) : null,
             $tanggal_mulai,
             $tanggal_selesai,
             $jenis_izin,
@@ -875,13 +907,31 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
                 : date('d/m/Y', strtotime($tanggal_mulai)) . ' s/d ' . date('d/m/Y', strtotime($tanggal_selesai));
 
             $jadwal_text = '';
-            if ($mode === 'per_jadwal' && $id_jadwal) {
-                $stmt_jadwal = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
-                $stmt_jadwal->execute([$id_jadwal]);
-                $jadwal = $stmt_jadwal->fetch(PDO::FETCH_ASSOC);
-                if ($jadwal) {
-                    $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
-                    $jadwal_text = "\\n*Jadwal:* {$jadwal['mapel']} - {$jadwal['kelas']} ({$jam_mulai})";
+            if ($mode === 'per_jadwal') {
+                $jadwal_ids_for_text = $id_jadwal_list ?: ($id_jadwal ? [$id_jadwal] : []);
+                if (count($jadwal_ids_for_text) === 1) {
+                    $stmt_jadwal = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                    $stmt_jadwal->execute([$jadwal_ids_for_text[0]]);
+                    $jadwal = $stmt_jadwal->fetch(PDO::FETCH_ASSOC);
+                    if ($jadwal) {
+                        $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                        $jadwal_text = "*Jadwal:* {$jam_mulai} {$jadwal['mapel']} - {$jadwal['kelas']}";
+                    }
+                } elseif (count($jadwal_ids_for_text) > 1) {
+                    // Beberapa jadwal: tampilkan list per baris (jam mapel - kelas)
+                    $parts = [];
+                    foreach ($jadwal_ids_for_text as $id_j) {
+                        $stmt_jadwal = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                        $stmt_jadwal->execute([$id_j]);
+                        $jadwal = $stmt_jadwal->fetch(PDO::FETCH_ASSOC);
+                        if ($jadwal) {
+                            $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                            $parts[] = "{$jam_mulai} {$jadwal['mapel']} - {$jadwal['kelas']}";
+                        }
+                    }
+                    if (!empty($parts)) {
+                        $jadwal_text = "*Jadwal:*\n- " . implode("\n- ", $parts);
+                    }
                 }
             }
 
@@ -889,7 +939,10 @@ if ($route === 'guru/izin' && $request_method === 'POST') {
             $message .= "*Guru:* {$nama_guru} ({$id_guru})\n";
             $message .= "*Jenis Izin:* {$jenis_izin}\n";
             $message .= "*Mode:* " . ($mode === 'per_jadwal' ? 'Per Jadwal' : 'Per Hari') . "\n";
-            $message .= "*Periode:* {$periode_text}{$jadwal_text}\n";
+            $message .= "*Periode:* {$periode_text}\n";
+            if (!empty($jadwal_text)) {
+                $message .= $jadwal_text . "\n";
+            }
             if (!empty($keterangan)) {
                 $message .= "*Keterangan:* {$keterangan}\n";
             }
@@ -927,6 +980,48 @@ if ($route === 'guru/izin' && $request_method === 'GET') {
     $stmt = $db->prepare("SELECT * FROM izin_guru WHERE id_guru = ? ORDER BY created_at DESC");
     $stmt->execute([$id_guru]);
     $izin_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Lengkapi dengan ringkasan jadwal untuk mode per_jadwal
+    foreach ($izin_list as &$izin) {
+        $izin['jadwal_text'] = null;
+        if ($izin['mode'] === 'per_jadwal') {
+            $id_jadwal_list = [];
+            if (!empty($izin['id_jadwal_list'])) {
+                $decoded = json_decode($izin['id_jadwal_list'], true);
+                if (is_array($decoded) && count($decoded) > 0) {
+                    $id_jadwal_list = array_values(array_unique(array_map('intval', $decoded)));
+                }
+            }
+            if (empty($id_jadwal_list) && !empty($izin['id_jadwal'])) {
+                $id_jadwal_list = [(int)$izin['id_jadwal']];
+            }
+
+            if (count($id_jadwal_list) === 1) {
+                $stmt_j = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                $stmt_j->execute([$id_jadwal_list[0]]);
+                $jadwal = $stmt_j->fetch(PDO::FETCH_ASSOC);
+                if ($jadwal) {
+                    $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                    $izin['jadwal_text'] = $jam_mulai . ' ' . $jadwal['mapel'] . ' - ' . $jadwal['kelas'];
+                }
+            } elseif (count($id_jadwal_list) > 1) {
+                // Ambil semua jadwal dan tampilkan per baris: jam mapel - kelas
+                $parts = [];
+                foreach ($id_jadwal_list as $id_j) {
+                    $stmt_j = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                    $stmt_j->execute([$id_j]);
+                    $jadwal = $stmt_j->fetch(PDO::FETCH_ASSOC);
+                    if ($jadwal) {
+                        $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                        $parts[] = $jam_mulai . ' ' . $jadwal['mapel'] . ' - ' . $jadwal['kelas'];
+                    }
+                }
+                if (!empty($parts)) {
+                    $izin['jadwal_text'] = implode("\n", $parts);
+                }
+            }
+        }
+    }
 
     echo json_encode($izin_list);
     exit();
@@ -1187,6 +1282,43 @@ if ($route === 'admin/izin' && $request_method === 'GET') {
     $stmt->execute($params);
     $izin_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Lengkapi dengan ringkasan jadwal untuk mode per_jadwal
+    foreach ($izin_list as &$izin) {
+        $izin['jadwal_text'] = null;
+        if ($izin['mode'] === 'per_jadwal') {
+            $id_jadwal_list = [];
+            if (!empty($izin['id_jadwal_list'])) {
+                $decoded = json_decode($izin['id_jadwal_list'], true);
+                if (is_array($decoded) && count($decoded) > 0) {
+                    $id_jadwal_list = array_values(array_unique(array_map('intval', $decoded)));
+                }
+            }
+            if (empty($id_jadwal_list) && !empty($izin['id_jadwal'])) {
+                $id_jadwal_list = [(int)$izin['id_jadwal']];
+            }
+
+            if (count($id_jadwal_list) === 1 && !empty($izin['mapel']) && !empty($izin['kelas']) && !empty($izin['jam_mulai'])) {
+                $jam_mulai = substr($izin['jam_mulai'], 0, 5);
+                $izin['jadwal_text'] = $jam_mulai . ' ' . $izin['mapel'] . ' - ' . $izin['kelas'];
+            } elseif (count($id_jadwal_list) > 1) {
+                // Ambil semua jadwal dan tampilkan per baris: jam mapel - kelas
+                $parts = [];
+                foreach ($id_jadwal_list as $id_j) {
+                    $stmt_j = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                    $stmt_j->execute([$id_j]);
+                    $jadwal = $stmt_j->fetch(PDO::FETCH_ASSOC);
+                    if ($jadwal) {
+                        $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                        $parts[] = $jam_mulai . ' ' . $jadwal['mapel'] . ' - ' . $jadwal['kelas'];
+                    }
+                }
+                if (!empty($parts)) {
+                    $izin['jadwal_text'] = implode("\n", $parts);
+                }
+            }
+        }
+    }
+
     echo json_encode($izin_list);
     exit();
 }
@@ -1219,11 +1351,21 @@ if (preg_match('/^admin\/izin\/(\d+)\/approve$/', $route, $matches) && $request_
         $stmt_update = $db->prepare("UPDATE izin_guru SET status = 'Disetujui' WHERE id_izin = ?");
         $stmt_update->execute([$id_izin]);
 
+        // Terapkan izin ke tabel absensi
         applyIzinToAbsensi($db, $izin);
+
+        // Kirim ulang jadwal hari ini ke grup agar status terkini (termasuk Izin) tercermin di notifikasi
+        try {
+            $waUpdateResult = sendJadwalHariIniKeGrup($db);
+            error_log('Jadwal harian setelah approve izin dikirim ke grup: ' . json_encode($waUpdateResult));
+        } catch (Exception $e) {
+            // Jangan gagalkan approval jika notifikasi gagal
+            error_log('Gagal mengirim update jadwal ke grup setelah approve izin: ' . $e->getMessage());
+        }
 
         echo json_encode([
             'success' => true,
-            'message' => 'Izin berhasil disetujui dan diterapkan ke absensi.'
+            'message' => 'Izin berhasil disetujui, diterapkan ke absensi, dan jadwal terkini dikirim ke grup.'
         ]);
     } catch (PDOException $e) {
         http_response_code(500);

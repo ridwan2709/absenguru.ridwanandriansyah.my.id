@@ -163,7 +163,7 @@ async function loadAdminIzinList(status) {
                         <p><span class="font-semibold">Mode:</span> ${item.mode}</p>
                         <p><span class="font-semibold">Periode:</span> ${periode}</p>
                         <p><span class="font-semibold">Jenis Izin:</span> ${item.jenis_izin}</p>
-                        ${item.id_jadwal ? `<p><span class="font-semibold">Jadwal:</span> ${item.mapel || '-'} - ${item.kelas || '-'} (${item.jam_mulai ? item.jam_mulai.substring(0,5) : '-'})</p>` : ''}
+                        ${item.jadwal_text ? `<p><span class="font-semibold">Jadwal:</span> ${item.jadwal_text.replace(/\n/g, '<br>')}</p>` : ''}
                     </div>
                     ${item.keterangan ? `<p class="text-sm text-gray-700 mb-2"><span class="font-semibold">Keterangan:</span> ${item.keterangan.replace(/\n/g, '<br>')}</p>` : ''}
                     ${item.foto_path ? `
