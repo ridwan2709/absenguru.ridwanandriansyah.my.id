@@ -199,6 +199,57 @@ function isAdmin($user) {
     }
 }
 
+function applyIzinToAbsensi($db, $izin)
+{
+    $id_guru = $izin['id_guru'];
+    $mode = $izin['mode'];
+    $id_jadwal_izin = $izin['id_jadwal'];
+    $tanggal_mulai = new DateTime($izin['tanggal_mulai']);
+    $tanggal_selesai = new DateTime($izin['tanggal_selesai']);
+
+    $hari_map = [
+        'Monday' => 'Senin',
+        'Tuesday' => 'Selasa',
+        'Wednesday' => 'Rabu',
+        'Thursday' => 'Kamis',
+        'Friday' => 'Jumat',
+        'Saturday' => 'Sabtu',
+        'Sunday' => 'Minggu'
+    ];
+
+    $periode = new DatePeriod($tanggal_mulai, new DateInterval('P1D'), $tanggal_selesai->modify('+1 day'));
+
+    foreach ($periode as $tanggal) {
+        $tanggal_str = $tanggal->format('Y-m-d');
+
+        if ($mode === 'per_jadwal' && $id_jadwal_izin) {
+            $id_jadwal_list = [$id_jadwal_izin];
+        } else {
+            $hari_en = $tanggal->format('l');
+            $hari_id = $hari_map[$hari_en] ?? $hari_en;
+
+            $stmt_jadwal = $db->prepare("SELECT id_jadwal FROM jadwal WHERE id_guru = ? AND hari = ?");
+            $stmt_jadwal->execute([$id_guru, $hari_id]);
+            $id_jadwal_list = $stmt_jadwal->fetchAll(PDO::FETCH_COLUMN);
+        }
+
+        foreach ($id_jadwal_list as $id_jadwal) {
+            $waResult = null;
+        try {
+                $stmt_insert = $db->prepare("INSERT INTO absensi (id_jadwal, tanggal, jam_masuk, status, latitude, longitude) VALUES (?, ?, NULL, 'Izin', NULL, NULL)");
+                $stmt_insert->execute([$id_jadwal, $tanggal_str]);
+            } catch (PDOException $e) {
+                if ($e->getCode() == '23000') {
+                    $stmt_update = $db->prepare("UPDATE absensi SET status = 'Izin', jam_masuk = NULL WHERE id_jadwal = ? AND tanggal = ?");
+                    $stmt_update->execute([$id_jadwal, $tanggal_str]);
+                } else {
+                    throw $e;
+                }
+            }
+        }
+    }
+}
+
 // =========================================================
 //                  ENDPOINT HANDLERS
 // =========================================================
@@ -442,6 +493,48 @@ if ($route === 'guru/jadwal_hari_ini' && $request_method === 'GET') {
     echo json_encode([
         "hari" => $hari_ini_id,
         "jadwal" => $jadwal_with_status
+    ]);
+    exit();
+}
+
+// --- 2A. GURU: UPLOAD FOTO IZIN ---
+if ($route === 'guru/izin/upload_foto' && $request_method === 'POST') {
+    $user = authenticateUser($db);
+
+    if (!isset($_FILES['foto'])) {
+        http_response_code(400);
+        echo json_encode(["message" => "File foto tidak ditemukan."]);
+        exit();
+    }
+
+    $upload_dir = __DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'izin';
+    if (!is_dir($upload_dir)) {
+        mkdir($upload_dir, 0775, true);
+    }
+
+    $file = $_FILES['foto'];
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        echo json_encode(["message" => "Gagal mengunggah foto."]);
+        exit();
+    }
+
+    $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $safe_ext = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
+    $new_name = 'izin_' . $user['id_guru'] . '_' . time() . '_' . bin2hex(random_bytes(4)) . ($safe_ext ? ('.' . $safe_ext) : '');
+    $target_path = $upload_dir . DIRECTORY_SEPARATOR . $new_name;
+
+    if (!move_uploaded_file($file['tmp_name'], $target_path)) {
+        http_response_code(500);
+        echo json_encode(["message" => "Gagal menyimpan file di server."]);
+        exit();
+    }
+
+    $relative_path = 'uploads/izin/' . $new_name;
+
+    echo json_encode([
+        'success' => true,
+        'foto_path' => $relative_path
     ]);
     exit();
 }
@@ -700,6 +793,156 @@ if (preg_match('/^guru\/absensi\/(\d+)$/', $route, $matches) && $request_method 
     exit();
 }
 
+// --- 3B. GURU: AJUKAN IZIN ---
+if ($route === 'guru/izin' && $request_method === 'POST') {
+    $user = authenticateUser($db);
+    $id_guru = $user['id_guru'];
+
+    $mode = $input_data['mode'] ?? null;
+    $jenis_izin = $input_data['jenis_izin'] ?? null;
+    $keterangan = $input_data['keterangan'] ?? null;
+    $foto_path = $input_data['foto_path'] ?? null;
+
+    if (empty($mode) || empty($jenis_izin)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Mode dan jenis_izin wajib diisi."]);
+        exit();
+    }
+
+    if (!in_array($mode, ['per_jadwal', 'per_hari'])) {
+        http_response_code(400);
+        echo json_encode(["message" => "Mode tidak valid."]);
+        exit();
+    }
+
+    if (!in_array($jenis_izin, ['Sakit', 'Dinas', 'Lainnya'])) {
+        http_response_code(400);
+        echo json_encode(["message" => "Jenis izin tidak valid."]);
+        exit();
+    }
+
+    $id_jadwal = null;
+    $tanggal_mulai = null;
+    $tanggal_selesai = null;
+
+    if ($mode === 'per_jadwal') {
+        $id_jadwal = $input_data['id_jadwal'] ?? null;
+        $tanggal = $input_data['tanggal'] ?? null;
+
+        if (empty($id_jadwal) || empty($tanggal)) {
+            http_response_code(400);
+            echo json_encode(["message" => "id_jadwal dan tanggal wajib diisi untuk mode per_jadwal."]);
+            exit();
+        }
+
+        $tanggal_mulai = $tanggal;
+        $tanggal_selesai = $tanggal;
+    } else {
+        $tanggal_mulai = $input_data['tanggal_mulai'] ?? null;
+        $tanggal_selesai = $input_data['tanggal_selesai'] ?? null;
+
+        if (empty($tanggal_mulai) || empty($tanggal_selesai)) {
+            http_response_code(400);
+            echo json_encode(["message" => "tanggal_mulai dan tanggal_selesai wajib diisi untuk mode per_hari."]);
+            exit();
+        }
+    }
+
+    try {
+        $stmt = $db->prepare("INSERT INTO izin_guru (id_guru, mode, id_jadwal, tanggal_mulai, tanggal_selesai, jenis_izin, keterangan, foto_path, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
+        $stmt->execute([
+            $id_guru,
+            $mode,
+            $id_jadwal,
+            $tanggal_mulai,
+            $tanggal_selesai,
+            $jenis_izin,
+            $keterangan,
+            $foto_path
+        ]);
+
+        $id_izin_baru = $db->lastInsertId();
+
+        try {
+            $stmt_guru = $db->prepare("SELECT nama FROM guru WHERE id_guru = ?");
+            $stmt_guru->execute([$id_guru]);
+            $guruData = $stmt_guru->fetch(PDO::FETCH_ASSOC);
+
+            $nama_guru = $guruData['nama'] ?? $id_guru;
+
+            $periode_text = $tanggal_mulai === $tanggal_selesai
+                ? date('d/m/Y', strtotime($tanggal_mulai))
+                : date('d/m/Y', strtotime($tanggal_mulai)) . ' s/d ' . date('d/m/Y', strtotime($tanggal_selesai));
+
+            $jadwal_text = '';
+            if ($mode === 'per_jadwal' && $id_jadwal) {
+                $stmt_jadwal = $db->prepare("SELECT kelas, mapel, jam_mulai FROM jadwal WHERE id_jadwal = ?");
+                $stmt_jadwal->execute([$id_jadwal]);
+                $jadwal = $stmt_jadwal->fetch(PDO::FETCH_ASSOC);
+                if ($jadwal) {
+                    $jam_mulai = substr($jadwal['jam_mulai'], 0, 5);
+                    $jadwal_text = "\\n*Jadwal:* {$jadwal['mapel']} - {$jadwal['kelas']} ({$jam_mulai})";
+                }
+            }
+
+            $message  = "*📄 PENGAJUAN IZIN GURU*\n\n";
+            $message .= "*Guru:* {$nama_guru} ({$id_guru})\n";
+            $message .= "*Jenis Izin:* {$jenis_izin}\n";
+            $message .= "*Mode:* " . ($mode === 'per_jadwal' ? 'Per Jadwal' : 'Per Hari') . "\n";
+            $message .= "*Periode:* {$periode_text}{$jadwal_text}\n";
+            if (!empty($keterangan)) {
+                $message .= "*Keterangan:* {$keterangan}\n";
+            }
+            $message .= "\n_Status: Pending persetujuan admin_";
+
+            $mediaUrl = null;
+            if (!empty($foto_path)) {
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+                $host = $_SERVER['HTTP_HOST'] ?? '';
+                $basePath = rtrim(str_replace('api.php', '', $_SERVER['SCRIPT_NAME'] ?? ''), '/');
+                $relativePath = ltrim($foto_path, '/');
+
+                // Hanya gunakan mediaUrl jika host bukan localhost/127.0.0.1 dan tidak kosong
+                if (!empty($host) && $host !== 'localhost' && $host !== '127.0.0.1') {
+                    $mediaUrl = rtrim($scheme . $host . $basePath, '/') . '/' . $relativePath;
+                }
+            }
+
+            $waResult = sendWhatsAppNotification($message, FONNTE_GROUP_ID, $mediaUrl);
+        } catch (Exception $e) {
+            error_log('Gagal mengirim notifikasi WA izin: ' . $e->getMessage());
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Izin berhasil diajukan dan menunggu persetujuan admin.',
+            'id_izin' => $id_izin_baru,
+            'wa_result' => $waResult
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Gagal mengajukan izin.',
+            'error' => $e->getMessage()
+        ]);
+    }
+    exit();
+}
+
+// --- 3C. GURU: DAFTAR IZIN ---
+if ($route === 'guru/izin' && $request_method === 'GET') {
+    $user = authenticateUser($db);
+    $id_guru = $user['id_guru'];
+
+    $stmt = $db->prepare("SELECT * FROM izin_guru WHERE id_guru = ? ORDER BY created_at DESC");
+    $stmt->execute([$id_guru]);
+    $izin_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode($izin_list);
+    exit();
+}
+
 // --- 4. ADMIN: DAFTAR GURU ---
 if ($route === 'admin/guru' && $request_method === 'GET') {
     $user = authenticateUser($db);
@@ -925,6 +1168,119 @@ if ($route === 'admin/laporan_absensi' && $request_method === 'GET') {
     $laporan = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     echo json_encode($laporan);
+    exit();
+}
+
+// --- 8B. ADMIN: DAFTAR IZIN GURU ---
+if ($route === 'admin/izin' && $request_method === 'GET') {
+    $user = authenticateUser($db);
+    isAdmin($user);
+
+    $status = $_GET['status'] ?? null;
+    $id_guru = $_GET['id_guru'] ?? null;
+
+    $query = "SELECT i.*, g.nama AS nama_guru, j.kelas, j.mapel, j.jam_mulai FROM izin_guru i JOIN guru g ON i.id_guru = g.id_guru LEFT JOIN jadwal j ON i.id_jadwal = j.id_jadwal WHERE 1=1";
+    $params = [];
+
+    if ($status) {
+        $query .= ' AND i.status = ?';
+        $params[] = $status;
+    }
+
+    if ($id_guru) {
+        $query .= ' AND i.id_guru = ?';
+        $params[] = $id_guru;
+    }
+
+    $query .= ' ORDER BY i.created_at DESC';
+
+    $stmt = $db->prepare($query);
+    $stmt->execute($params);
+    $izin_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode($izin_list);
+    exit();
+}
+
+// --- 8C. ADMIN: SETUJUI IZIN ---
+if (preg_match('/^admin\/izin\/(\d+)\/approve$/', $route, $matches) && $request_method === 'POST') {
+    $user = authenticateUser($db);
+    isAdmin($user);
+    $id_izin = $matches[1];
+
+    try {
+        $stmt = $db->prepare("SELECT * FROM izin_guru WHERE id_izin = ?");
+        $stmt->execute([$id_izin]);
+        $izin = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$izin) {
+            http_response_code(404);
+            echo json_encode(["message" => "Izin tidak ditemukan."]);
+            exit();
+        }
+
+        if ($izin['status'] === 'Disetujui') {
+            echo json_encode([
+                'success' => true,
+                'message' => 'Izin sudah dalam status Disetujui.'
+            ]);
+            exit();
+        }
+
+        $stmt_update = $db->prepare("UPDATE izin_guru SET status = 'Disetujui' WHERE id_izin = ?");
+        $stmt_update->execute([$id_izin]);
+
+        applyIzinToAbsensi($db, $izin);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Izin berhasil disetujui dan diterapkan ke absensi.'
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Gagal menyetujui izin.',
+            'error' => $e->getMessage()
+        ]);
+    }
+    exit();
+}
+
+// --- 8D. ADMIN: TOLAK IZIN ---
+if (preg_match('/^admin\/izin\/(\d+)\/reject$/', $route, $matches) && $request_method === 'POST') {
+    $user = authenticateUser($db);
+    isAdmin($user);
+    $id_izin = $matches[1];
+
+    $alasan = $input_data['alasan'] ?? null;
+
+    try {
+        $stmt = $db->prepare("SELECT * FROM izin_guru WHERE id_izin = ?");
+        $stmt->execute([$id_izin]);
+        $izin = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$izin) {
+            http_response_code(404);
+            echo json_encode(["message" => "Izin tidak ditemukan."]);
+            exit();
+        }
+
+        $stmt_update = $db->prepare("UPDATE izin_guru SET status = 'Ditolak', keterangan = IFNULL(CONCAT(COALESCE(keterangan, ''), '\n[Ditolak]: ', ?), '\n[Ditolak]: ') WHERE id_izin = ?");
+        $stmt_update->execute([$alasan, $id_izin]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Izin berhasil ditolak.'
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Gagal menolak izin.',
+            'error' => $e->getMessage()
+        ]);
+    }
     exit();
 }
 

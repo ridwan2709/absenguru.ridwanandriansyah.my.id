@@ -64,6 +64,12 @@ async function renderAdminDashboard() {
                 </svg>
                 <span class="text-xs mt-1">Laporan</span>
             </button>
+            <button onclick="switchAdminTab('izin')" data-admin-tab="izin" class="admin-menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="text-xs mt-1">Izin</span>
+            </button>
             <button onclick="switchAdminTab('maps')" data-admin-tab="maps" class="admin-menu-item flex flex-col items-center justify-center w-full py-2 px-1 text-gray-500 hover:text-primary relative">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
@@ -80,6 +86,135 @@ async function renderAdminDashboard() {
     mainContent.style.paddingBottom = '70px';
     
     switchAdminTab('dashboard');
+}
+
+async function renderAdminIzin() {
+    const contentEl = document.getElementById('admin-content');
+    contentEl.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-2xl font-semibold text-gray-800">Manajemen Izin Guru</h3>
+        </div>
+        <div class="flex flex-wrap gap-2 mb-4">
+            <button class="izin-filter px-4 py-2 rounded-lg border text-sm bg-primary text-white" data-status="Pending" onclick="loadAdminIzinList('Pending')">Pending</button>
+            <button class="izin-filter px-4 py-2 rounded-lg border text-sm" data-status="Disetujui" onclick="loadAdminIzinList('Disetujui')">Disetujui</button>
+            <button class="izin-filter px-4 py-2 rounded-lg border text-sm" data-status="Ditolak" onclick="loadAdminIzinList('Ditolak')">Ditolak</button>
+            <button class="izin-filter px-4 py-2 rounded-lg border text-sm" data-status="all" onclick="loadAdminIzinList(null)">Semua</button>
+        </div>
+        <div id="admin-izin-list" class="space-y-3">
+            <p class="text-center text-gray-500">Memuat data izin...</p>
+        </div>
+    `;
+
+    loadAdminIzinList('Pending');
+}
+
+async function loadAdminIzinList(status) {
+    const container = document.getElementById('admin-izin-list');
+    container.innerHTML = '<p class="text-center text-gray-500">Memuat data izin...</p>';
+
+    try {
+        const filterButtons = document.querySelectorAll('.izin-filter');
+        filterButtons.forEach(btn => {
+            btn.classList.remove('bg-primary', 'text-white');
+            btn.classList.add('bg-white', 'text-gray-700');
+        });
+
+        const activeStatus = status || 'all';
+        const activeBtn = document.querySelector(`.izin-filter[data-status="${activeStatus}"]`);
+        if (activeBtn) {
+            activeBtn.classList.remove('bg-white', 'text-gray-700');
+            activeBtn.classList.add('bg-primary', 'text-white');
+        }
+
+        let route = 'admin/izin';
+        if (status) {
+            route += `&status=${encodeURIComponent(status)}`;
+        }
+
+        const data = await apiFetch(route);
+
+        if (!data || data.length === 0) {
+            container.innerHTML = '<p class="text-center text-gray-500">Tidak ada data izin.</p>';
+            return;
+        }
+
+        let html = '';
+        data.forEach(item => {
+            const statusColor = item.status === 'Disetujui'
+                ? 'bg-green-100 text-green-800'
+                : item.status === 'Ditolak'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-yellow-100 text-yellow-800';
+
+            const periode = item.tanggal_mulai === item.tanggal_selesai
+                ? item.tanggal_mulai
+                : `${item.tanggal_mulai} s/d ${item.tanggal_selesai}`;
+
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-semibold text-gray-900">${item.nama_guru} (${item.id_guru})</p>
+                            <p class="text-xs text-gray-500">ID Izin: ${item.id_izin}</p>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusColor}">${item.status}</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700 mb-2">
+                        <p><span class="font-semibold">Mode:</span> ${item.mode}</p>
+                        <p><span class="font-semibold">Periode:</span> ${periode}</p>
+                        <p><span class="font-semibold">Jenis Izin:</span> ${item.jenis_izin}</p>
+                        ${item.id_jadwal ? `<p><span class="font-semibold">Jadwal:</span> ${item.mapel || '-'} - ${item.kelas || '-'} (${item.jam_mulai ? item.jam_mulai.substring(0,5) : '-'})</p>` : ''}
+                    </div>
+                    ${item.keterangan ? `<p class="text-sm text-gray-700 mb-2"><span class="font-semibold">Keterangan:</span> ${item.keterangan.replace(/\n/g, '<br>')}</p>` : ''}
+                    ${item.foto_path ? `
+                        <div class="mb-2">
+                            <p class="text-xs text-gray-500 mb-1">Foto Bukti:</p>
+                            <a href="${item.foto_path}" target="_blank" class="inline-block">
+                                <img src="${item.foto_path}" alt="Foto bukti izin" class="max-h-32 rounded border border-gray-200 shadow-sm object-contain">
+                            </a>
+                        </div>
+                    ` : ''}
+                    <div class="flex space-x-2 mt-2">
+                        ${item.status === 'Pending' ? `
+                            <button class="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600" onclick="approveIzin(${item.id_izin})">Setujui</button>
+                            <button class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600" onclick="rejectIzin(${item.id_izin})">Tolak</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Gagal memuat data izin:', error);
+        container.innerHTML = `<p class="text-center text-red-500">Gagal memuat data izin: ${error.message}</p>`;
+    }
+}
+
+async function approveIzin(id_izin) {
+    try {
+        await apiFetch(`admin/izin/${id_izin}/approve`, { method: 'POST', body: JSON.stringify({}) });
+        showNotification('Izin berhasil disetujui dan diterapkan ke absensi.', 'success');
+        loadAdminIzinList('Pending');
+    } catch (error) {
+        console.error('Gagal menyetujui izin:', error);
+        showNotification('Gagal menyetujui izin: ' + error.message, 'error');
+    }
+}
+
+async function rejectIzin(id_izin) {
+    const alasan = prompt('Alasan penolakan (opsional):');
+    try {
+        await apiFetch(`admin/izin/${id_izin}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ alasan })
+        });
+        showNotification('Izin berhasil ditolak.', 'success');
+        loadAdminIzinList('Pending');
+    } catch (error) {
+        console.error('Gagal menolak izin:', error);
+        showNotification('Gagal menolak izin: ' + error.message, 'error');
+    }
 }
 
 // Switch admin tab
@@ -108,6 +243,11 @@ function switchAdminTab(tabName) {
         }
     }
     
+    if (window.adminIzinInterval) {
+        clearInterval(window.adminIzinInterval);
+        window.adminIzinInterval = null;
+    }
+
     switch (tabName) {
         case 'dashboard':
             renderAdminStats();
@@ -121,13 +261,16 @@ function switchAdminTab(tabName) {
         case 'laporan':
             renderLaporanAbsensi();
             break;
+        case 'izin':
+            renderAdminIzin();
+            window.adminIzinInterval = setInterval(() => {
+                loadAdminIzinList('Pending');
+            }, 15000);
+            break;
         case 'maps':
             renderMapsSettings();
             break;
     }
-    
-    // Scroll to top of the content
-    window.scrollTo(0, 0);
 }
 
 // Render admin stats (dashboard)

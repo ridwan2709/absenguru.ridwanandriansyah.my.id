@@ -20,7 +20,7 @@
 
 define('FONNTE_API_URL', 'https://api.fonnte.com/send');
 define('FONNTE_TOKEN', 'rGPXg5Fj2MKkWwX7cmuf'); // Token dari dashboard Fonnte
-define('FONNTE_GROUP_ID', '120363404095879088@g.us'); // ID Grup WhatsApp
+define('FONNTE_GROUP_ID', '120363420233041426@g.us'); // ID Grup WhatsApp
 
 // ============================================
 // FUNGSI UTAMA
@@ -28,10 +28,11 @@ define('FONNTE_GROUP_ID', '120363404095879088@g.us'); // ID Grup WhatsApp
 
 /**
  * Fungsi untuk mengirim pesan WhatsApp ke nomor tertentu
- * @param string $message - Pesan yang akan dikirim
+ * @param string $message - Pesan yang akan dikirim (akan menjadi caption jika mediaUrl diisi)
  * @param string $target - Nomor HP tujuan (format: 628xxx atau grup ID)
+ * @param string|null $mediaUrl - URL publik file media (gambar) yang akan dikirim (opsional)
  */
-function sendWhatsAppNotification($message, $target = null) {
+function sendWhatsAppNotification($message, $target = null, $mediaUrl = null) {
     // Jika target tidak diset, gunakan GROUP_ID (untuk backward compatibility)
     if ($target === null) {
         $target = FONNTE_GROUP_ID;
@@ -50,6 +51,11 @@ function sendWhatsAppNotification($message, $target = null) {
         'message' => $message,
         'countryCode' => '62' // Indonesia
     ];
+
+    // Jika ada media URL, sertakan sebagai gambar/file. Di Fonnte, "message" akan menjadi caption.
+    if (!empty($mediaUrl)) {
+        $data['url'] = $mediaUrl;
+    }
 
     curl_setopt_array($curl, [
         CURLOPT_URL => FONNTE_API_URL,

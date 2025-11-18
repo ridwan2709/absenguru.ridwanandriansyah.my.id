@@ -43,7 +43,7 @@ async function loadGuruSchedule() {
                 buttonHtml = `
                     <div class="flex items-center space-x-2">
                         <span class="px-4 py-2 bg-yellow-500 text-white rounded-lg font-semibold">⚠ Terlambat</span>
-                        <span class="text-sm text-gray-600">Jam: ${session.jam_masuk ? session.jam_masuk.substring(0, 5) : '-'}</span>
+                        <span class="text-sm text-gray-600">Jam: ${session.jam_masuk ? session.jam_masuk.substring(0, 5) : '-'} </span>
                     </div>
                 `;
             } else {
@@ -282,5 +282,324 @@ async function handleAbsensi(event) {
             button.textContent = originalButtonText;
         }
         loadGuruSchedule();
+    }
+}
+
+async function uploadIzinFoto(file) {
+    const url = `${API_URL_ROOT}?route=guru/izin/upload_foto`;
+    const formData = new FormData();
+    formData.append('foto', file);
+
+    const headers = {};
+    const currentToken = window.userToken || localStorage.getItem('absensiToken');
+    if (currentToken) {
+        headers['Authorization'] = `Bearer ${currentToken}`;
+    }
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData
+    });
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({ message: 'Gagal mengunggah foto izin' }));
+        throw new Error(data.message || 'Gagal mengunggah foto izin');
+    }
+
+    const result = await response.json();
+    if (!result.success || !result.foto_path) {
+        throw new Error(result.message || 'Gagal mengunggah foto izin');
+    }
+    return result.foto_path;
+}
+
+function openIzinFormFromSchedule(event) {
+    const button = event.target.closest('button');
+    const id_jadwal = button.getAttribute('data-id');
+    const tanggal = button.getAttribute('data-tanggal');
+
+    const initialData = {
+        mode: 'per_jadwal',
+        id_jadwal,
+        tanggal
+    };
+
+    showIzinForm(initialData);
+}
+
+function showIzinForm(initialData = {}) {
+    let overlay = document.getElementById('izin-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+
+    overlay = document.createElement('div');
+    overlay.id = 'izin-overlay';
+    overlay.className = 'fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50';
+
+    const today = new Date().toISOString().split('T')[0];
+    const defaultTanggalMulai = initialData.tanggal || today;
+
+    overlay.innerHTML = `
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800">Ajukan Izin</h3>
+            <form id="izin-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Mode Izin</label>
+                    <select id="izin-mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                        <option value="per_jadwal" ${initialData.mode === 'per_jadwal' ? 'selected' : ''}>Per Jadwal</option>
+                        <option value="per_hari" ${initialData.mode === 'per_hari' ? 'selected' : ''}>Per Hari / Rentang Hari</option>
+                    </select>
+                </div>
+
+                <div id="izin-per-jadwal" class="space-y-2 ${initialData.mode === 'per_hari' ? 'hidden' : ''}">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Izin</label>
+                    <input type="date" id="izin-tanggal" value="${initialData.tanggal || today}" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                    <div class="mt-3">
+                        <p class="text-xs text-gray-500 mb-1">Pilih jadwal yang ingin diizinkan (bisa lebih dari satu):</p>
+                        <div id="izin-jadwal-list" class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2 text-sm text-gray-700 bg-gray-50">
+                            <p class="text-center text-gray-400 text-xs">Memuat jadwal...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="izin-per-hari" class="space-y-2 ${initialData.mode === 'per_hari' ? '' : 'hidden'}">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tanggal Mulai</label>
+                    <input type="date" id="izin-tanggal-mulai" value="${defaultTanggalMulai}" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                    <label class="block text-sm font-medium text-gray-700 mb-1 mt-2">Tanggal Selesai</label>
+                    <input type="date" id="izin-tanggal-selesai" value="${defaultTanggalMulai}" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Jenis Izin</label>
+                    <select id="izin-jenis" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
+                        <option value="Sakit">Sakit</option>
+                        <option value="Dinas">Dinas</option>
+                        <option value="Lainnya">Lainnya</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Keterangan</label>
+                    <textarea id="izin-keterangan" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Contoh: Sakit demam, ada surat dokter, dsb."></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Foto Bukti (opsional)</label>
+                    <input type="file" id="izin-foto" accept="image/*" class="w-full text-sm text-gray-700">
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" id="izin-cancel" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Batal</button>
+                    <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-indigo-600">Kirim Izin</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const modeSelect = document.getElementById('izin-mode');
+    const perJadwalSection = document.getElementById('izin-per-jadwal');
+    const perHariSection = document.getElementById('izin-per-hari');
+
+    async function ensureJadwalListLoaded() {
+        const listEl = document.getElementById('izin-jadwal-list');
+        if (!listEl || listEl.dataset.loaded === 'true') return;
+        try {
+            const jadwal = await apiFetch('guru/jadwal_semua');
+            if (!jadwal || jadwal.length === 0) {
+                listEl.innerHTML = '<p class="text-center text-gray-400 text-xs">Tidak ada jadwal terdaftar.</p>';
+                listEl.dataset.loaded = 'true';
+                return;
+            }
+
+            const hariOrder = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu'];
+            jadwal.sort((a,b) => {
+                const ha = hariOrder.indexOf(a.hari);
+                const hb = hariOrder.indexOf(b.hari);
+                if (ha !== hb) return ha - hb;
+                return a.jam_mulai.localeCompare(b.jam_mulai);
+            });
+
+            let html = '';
+            jadwal.forEach(item => {
+                html += `
+                    <label class="flex items-start space-x-2 py-1">
+                        <input type="checkbox" class="izin-jadwal-checkbox mt-1" value="${item.id_jadwal}">
+                        <span>
+                            <span class="font-semibold">${item.hari}</span> - ${item.jam_mulai.substring(0,5)}<br>
+                            <span class="text-xs text-gray-600">${item.mapel} - ${item.kelas}</span>
+                        </span>
+                    </label>
+                `;
+            });
+
+            listEl.innerHTML = html;
+            listEl.dataset.loaded = 'true';
+        } catch (e) {
+            console.error('Gagal memuat jadwal untuk izin:', e);
+            listEl.innerHTML = '<p class="text-center text-red-400 text-xs">Gagal memuat jadwal.</p>';
+        }
+    }
+
+    modeSelect.addEventListener('change', () => {
+        const mode = modeSelect.value;
+        if (mode === 'per_jadwal') {
+            perJadwalSection.classList.remove('hidden');
+            perHariSection.classList.add('hidden');
+            ensureJadwalListLoaded();
+        } else {
+            perJadwalSection.classList.add('hidden');
+            perHariSection.classList.remove('hidden');
+        }
+    });
+
+    // Jika awalnya mode per_jadwal, langsung muat jadwal
+    if (modeSelect.value === 'per_jadwal') {
+        ensureJadwalListLoaded();
+    }
+
+    document.getElementById('izin-cancel').addEventListener('click', () => {
+        overlay.remove();
+    });
+
+    const form = document.getElementById('izin-form');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const mode = modeSelect.value;
+        const jenis_izin = document.getElementById('izin-jenis').value;
+        const keterangan = document.getElementById('izin-keterangan').value;
+        const fotoInput = document.getElementById('izin-foto');
+
+        let foto_path = null;
+        try {
+            if (fotoInput.files && fotoInput.files[0]) {
+                foto_path = await uploadIzinFoto(fotoInput.files[0]);
+            }
+
+            let payload = {
+                mode,
+                jenis_izin,
+                keterangan,
+                foto_path
+            };
+
+            if (mode === 'per_jadwal') {
+                const tanggal = document.getElementById('izin-tanggal').value;
+                const checked = Array.from(document.querySelectorAll('.izin-jadwal-checkbox:checked')).map(el => el.value);
+
+                if (!tanggal) {
+                    throw new Error('Tanggal izin harus diisi untuk mode per jadwal.');
+                }
+                if (!checked.length) {
+                    throw new Error('Silakan pilih minimal satu jadwal untuk diajukan izin.');
+                }
+
+                for (const id_jadwal of checked) {
+                    const perJadwalPayload = {
+                        ...payload,
+                        mode: 'per_jadwal',
+                        id_jadwal,
+                        tanggal
+                    };
+                    await apiFetch('guru/izin', {
+                        method: 'POST',
+                        body: JSON.stringify(perJadwalPayload)
+                    });
+                }
+            } else {
+                const tanggal_mulai = document.getElementById('izin-tanggal-mulai').value;
+                const tanggal_selesai = document.getElementById('izin-tanggal-selesai').value;
+                payload.tanggal_mulai = tanggal_mulai;
+                payload.tanggal_selesai = tanggal_selesai;
+                await apiFetch('guru/izin', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            showModal('Izin Diajukan', 'Pengajuan izin berhasil dikirim dan menunggu persetujuan admin.', 'success');
+            overlay.remove();
+            if (typeof loadGuruIzinList === 'function') {
+                loadGuruIzinList();
+            }
+        } catch (error) {
+            console.error('Gagal mengajukan izin:', error);
+            showModal('Gagal Mengajukan Izin', error.message || 'Terjadi kesalahan saat mengajukan izin.', 'alert');
+        }
+    });
+}
+
+async function renderGuruIzin() {
+    const container = document.getElementById('izin-content');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+            <h4 class="text-lg font-semibold text-gray-800">Riwayat Izin</h4>
+            <button id="btn-tambah-izin" class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-indigo-600">Ajukan Izin Baru</button>
+        </div>
+        <div id="izin-list" class="space-y-3">
+            <p class="text-center text-gray-500">Memuat data izin...</p>
+        </div>
+    `;
+
+    const btnTambah = document.getElementById('btn-tambah-izin');
+    btnTambah.addEventListener('click', () => {
+        showIzinForm({ mode: 'per_hari' });
+    });
+
+    loadGuruIzinList();
+}
+
+async function loadGuruIzinList() {
+    const listContainer = document.getElementById('izin-list');
+    if (!listContainer) return;
+
+    listContainer.innerHTML = '<p class="text-center text-gray-500">Memuat data izin...</p>';
+
+    try {
+        const data = await apiFetch('guru/izin');
+
+        if (!data || data.length === 0) {
+            listContainer.innerHTML = '<p class="text-center text-gray-500">Belum ada pengajuan izin.</p>';
+            return;
+        }
+
+        let html = '';
+        data.forEach(item => {
+            const statusColor = item.status === 'Disetujui'
+                ? 'bg-green-100 text-green-800'
+                : item.status === 'Ditolak'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-yellow-100 text-yellow-800';
+
+            const periode = item.tanggal_mulai === item.tanggal_selesai
+                ? item.tanggal_mulai
+                : `${item.tanggal_mulai} s/d ${item.tanggal_selesai}`;
+
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-semibold text-gray-900">${item.jenis_izin}</p>
+                            <p class="text-xs text-gray-500">Mode: ${item.mode}</p>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusColor}">${item.status}</span>
+                    </div>
+                    <p class="text-sm text-gray-700 mb-1"><span class="font-semibold">Periode:</span> ${periode}</p>
+                    ${item.keterangan ? `<p class="text-sm text-gray-700 mb-1"><span class="font-semibold">Keterangan:</span> ${item.keterangan.replace(/\n/g, '<br>')}</p>` : ''}
+                    ${item.foto_path ? `<p class="text-sm"><a href="${item.foto_path}" target="_blank" class="text-primary underline">Lihat Foto Bukti</a></p>` : ''}
+                </div>
+            `;
+        });
+
+        listContainer.innerHTML = html;
+    } catch (error) {
+        console.error('Gagal memuat daftar izin:', error);
+        listContainer.innerHTML = `<p class="text-center text-red-500">Gagal memuat data izin: ${error.message}</p>`;
     }
 }
