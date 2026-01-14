@@ -748,7 +748,7 @@ if (preg_match('/^guru\/absensi\/(\d+)$/', $route, $matches) && $request_method 
     $jam_mulai_str = $jadwal['jam_mulai'];
     $jam_mulai = new DateTime($today_date . ' ' . $jam_mulai_str, new DateTimeZone('Asia/Jakarta'));
     
-    $early_limit = (clone $jam_mulai)->modify('-' . 5 . ' minutes');
+    $early_limit = (clone $jam_mulai)->modify('-' . ABSENSI_LIMIT_MINUTES . ' minutes');
     $late_limit = (clone $jam_mulai)->modify('+' . ABSENSI_LIMIT_MINUTES . ' minutes');
 
 
